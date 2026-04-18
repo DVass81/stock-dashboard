@@ -1,6 +1,5 @@
 streamlit
-yfinance
-pandas
-ta
-plotly
 openai
+pandas
+plotly
+feedparser
