@@ -1,9 +1,7 @@
 streamlit
-openai
-pandas
-plotly
-feedparser
 yfinance
+pandas
 ta
-numpy
-requests
+plotly
+openai
+feedparser
