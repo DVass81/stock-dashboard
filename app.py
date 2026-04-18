@@ -4,32 +4,38 @@ import pandas as pd
 from ta.momentum import RSIIndicator
 
 st.set_page_config(layout="wide")
-
 st.title("📈 Stock Dashboard")
 
 tickers = ["NVDA", "MSFT", "AMZN", "GOOGL", "SOUN", "RGTI", "PLUG"]
 
 def get_data(ticker):
-    df = yf.download(ticker, period="3mo", interval="1d")
+    df = yf.download(ticker, period="3mo", interval="1d", auto_adjust=True, progress=False)
 
     if df.empty:
+        return None
+
+    if "Close" not in df.columns:
         return None
 
     close = df["Close"]
 
     if isinstance(close, pd.DataFrame):
-        close = close.squeeze()
+        close = close.iloc[:, 0]
 
     close = pd.to_numeric(close, errors="coerce")
 
-    df["close"] = close
-    df["rsi"] = RSIIndicator(close=close).rsi()
-    df["ma20"] = close.rolling(20).mean()
-    df["ma50"] = close.rolling(50).mean()
+    clean = pd.DataFrame(index=df.index)
+    clean["close"] = close
+    clean["rsi"] = RSIIndicator(close=close).rsi()
+    clean["ma20"] = close.rolling(20).mean()
+    clean["ma50"] = close.rolling(50).mean()
 
-    return df
+    return clean
 
 def get_signal(df):
+    if df is None:
+        return "ERROR"
+
     valid = df.dropna(subset=["close", "rsi", "ma20", "ma50"])
 
     if valid.empty:
@@ -53,17 +59,22 @@ for ticker in tickers:
         results.append([ticker, "ERROR", None, None, None, None])
         continue
 
-    signal = get_signal(df)
+    valid = df.dropna(subset=["close", "rsi", "ma20", "ma50"])
 
-    latest = df.iloc[-1]
+    if valid.empty:
+        results.append([ticker, "WAIT", None, None, None, None])
+        continue
+
+    signal = get_signal(df)
+    latest = valid.iloc[-1]
 
     results.append([
         ticker,
         signal,
-        round(latest["close"], 2),
-        round(latest["rsi"], 2),
-        round(latest["ma20"], 2),
-        round(latest["ma50"], 2)
+        round(float(latest["close"]), 2),
+        round(float(latest["rsi"]), 2),
+        round(float(latest["ma20"]), 2),
+        round(float(latest["ma50"]), 2)
     ])
 
 df_results = pd.DataFrame(results, columns=["Ticker", "Signal", "Price", "RSI", "MA20", "MA50"])
@@ -75,4 +86,4 @@ col2.metric("BUY", len(df_results[df_results["Signal"] == "BUY"]))
 col3.metric("HOLD", len(df_results[df_results["Signal"] == "HOLD"]))
 col4.metric("WAIT", len(df_results[df_results["Signal"] == "WAIT"]))
 
-st.dataframe(df_results)
+st.dataframe(df_results, use_container_width=True, hide_index=True)
