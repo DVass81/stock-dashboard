@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from urllib.parse import quote_plus
 
+import feedparser
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -10,7 +11,7 @@ from openai import OpenAI
 from ta.momentum import RSIIndicator
 
 st.set_page_config(
-    page_title="Trading Terminal Pro",
+    page_title="Trading Terminal Elite",
     page_icon="📈",
     layout="wide"
 )
@@ -42,7 +43,7 @@ PORTFOLIO_FILE = Path("portfolio_positions.csv")
 NOTES_FILE = Path("ticker_notes.json")
 ALERT_STATE_FILE = Path("alert_state.json")
 ALERT_HISTORY_FILE = Path("alert_history.json")
-
+JOURNAL_FILE = Path("trade_journal.csv")
 
 # ----------------------------
 # STYLING
@@ -50,31 +51,31 @@ ALERT_HISTORY_FILE = Path("alert_history.json")
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(180deg, #12203a 0%, #1e293b 45%, #334155 100%);
+    background: linear-gradient(180deg, #0b1020 0%, #1e293b 45%, #334155 100%);
 }
 .block-container {
-    padding-top: 1.15rem;
+    padding-top: 1.1rem;
     padding-bottom: 2rem;
-    max-width: 1500px;
+    max-width: 1550px;
 }
 h1, h2, h3, h4, p, div, span, label {
     color: #f8fafc !important;
 }
 .hero {
-    background: linear-gradient(135deg, #22c55e 0%, #2563eb 40%, #a855f7 100%);
+    background: linear-gradient(135deg, #22c55e 0%, #2563eb 38%, #9333ea 100%);
     border: 1px solid rgba(255,255,255,0.18);
     border-radius: 26px;
     padding: 28px 30px;
     margin-bottom: 18px;
-    box-shadow: 0 14px 34px rgba(0,0,0,0.30);
+    box-shadow: 0 14px 34px rgba(0,0,0,0.28);
 }
 .metric-card {
-    background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
-    border: 1px solid rgba(148, 163, 184, 0.30);
+    background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+    border: 1px solid rgba(148, 163, 184, 0.25);
     border-radius: 22px;
     padding: 18px;
     min-height: 115px;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.14);
 }
 .metric-label {
     color: #334155 !important;
@@ -91,10 +92,10 @@ h1, h2, h3, h4, p, div, span, label {
 }
 .section-card {
     background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: 22px;
     padding: 18px;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.16);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.14);
 }
 .badge {
     display: inline-block;
@@ -125,6 +126,18 @@ h1, h2, h3, h4, p, div, span, label {
 .dark-text {
     color: #0f172a !important;
 }
+.good {
+    color: #16a34a !important;
+    font-weight: 800;
+}
+.bad {
+    color: #dc2626 !important;
+    font-weight: 800;
+}
+.warn {
+    color: #d97706 !important;
+    font-weight: 800;
+}
 div[data-baseweb="select"] * {
     color: black !important;
 }
@@ -141,9 +154,66 @@ div[data-testid="stDataEditor"] * {
 </style>
 """, unsafe_allow_html=True)
 
+# ----------------------------
+# FILE HELPERS
+# ----------------------------
+def load_json_file(path, default):
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            return default
+    return default
+
+def save_json_file(path, value):
+    path.write_text(json.dumps(value, indent=2))
+
+def ensure_portfolio_file():
+    if not PORTFOLIO_FILE.exists():
+        pd.DataFrame([{"Ticker": t, "Shares": 0, "Avg Cost": 0} for t in TICKERS]).to_csv(PORTFOLIO_FILE, index=False)
+
+def load_portfolio():
+    ensure_portfolio_file()
+    df = pd.read_csv(PORTFOLIO_FILE)
+    df["Ticker"] = df["Ticker"].astype(str)
+    df["Shares"] = pd.to_numeric(df["Shares"], errors="coerce").fillna(0.0)
+    df["Avg Cost"] = pd.to_numeric(df["Avg Cost"], errors="coerce").fillna(0.0)
+    return df
+
+def save_portfolio(df):
+    df.to_csv(PORTFOLIO_FILE, index=False)
+
+def load_notes():
+    return load_json_file(NOTES_FILE, {})
+
+def save_notes(notes):
+    save_json_file(NOTES_FILE, notes)
+
+def load_alert_state():
+    return load_json_file(ALERT_STATE_FILE, {})
+
+def save_alert_state(state):
+    save_json_file(ALERT_STATE_FILE, state)
+
+def load_alert_history():
+    return load_json_file(ALERT_HISTORY_FILE, [])
+
+def save_alert_history(history):
+    save_json_file(ALERT_HISTORY_FILE, history[:150])
+
+def ensure_journal_file():
+    if not JOURNAL_FILE.exists():
+        pd.DataFrame(columns=["Date", "Ticker", "Action", "Price", "Shares", "Why", "Result"]).to_csv(JOURNAL_FILE, index=False)
+
+def load_journal():
+    ensure_journal_file()
+    return pd.read_csv(JOURNAL_FILE)
+
+def save_journal(df):
+    df.to_csv(JOURNAL_FILE, index=False)
 
 # ----------------------------
-# HELPERS
+# APP HELPERS
 # ----------------------------
 def signal_color(signal):
     return {
@@ -154,88 +224,57 @@ def signal_color(signal):
         "REDUCE": "#ef4444",
         "REVIEW": "#f97316",
         "NO POSITION": "#64748b",
+        "STRONG BUY": "#15803d",
     }.get(signal, "#64748b")
-
 
 def yahoo_chart_url(ticker):
     return f"https://finance.yahoo.com/quote/{quote_plus(ticker)}/chart"
 
-
 def yahoo_quote_url(ticker):
     return f"https://finance.yahoo.com/quote/{quote_plus(ticker)}"
-
 
 def fidelity_trade_url():
     return "https://www.fidelity.com/trading/overview"
 
-
 def fidelity_research_url():
     return "https://digital.fidelity.com/prgw/digital/research/src"
-
 
 def robinhood_url():
     return "https://robinhood.com/us/en/"
 
-
 def coinbase_url():
     return "https://www.coinbase.com/"
 
+def arrow_text(value):
+    if pd.isna(value):
+        return "—"
+    if value > 0:
+        return f"▲ {value:.2f}%"
+    if value < 0:
+        return f"▼ {value:.2f}%"
+    return f"{value:.2f}%"
 
-def ensure_portfolio_file():
-    if not PORTFOLIO_FILE.exists():
-        pd.DataFrame([{"Ticker": t, "Shares": 0, "Avg Cost": 0} for t in TICKERS]).to_csv(PORTFOLIO_FILE, index=False)
+def bucket_badge(bucket):
+    colors = {
+        "Long Term": "#2563eb",
+        "Aggressive": "#f97316",
+        "Speculative": "#a855f7",
+        "Crypto": "#14b8a6",
+    }
+    return f'<span class="badge" style="background:{colors.get(bucket, "#64748b")};">{bucket}</span>'
 
+def market_banner():
+    st.success("📡 Live dashboard. Stocks follow market hours. Crypto updates continuously.")
 
-def load_portfolio():
-    ensure_portfolio_file()
-    df = pd.read_csv(PORTFOLIO_FILE)
-    df["Ticker"] = df["Ticker"].astype(str)
-    df["Shares"] = pd.to_numeric(df["Shares"], errors="coerce").fillna(0.0)
-    df["Avg Cost"] = pd.to_numeric(df["Avg Cost"], errors="coerce").fillna(0.0)
-    return df
+def get_openai_client():
+    api_key = st.secrets.get("OPENAI_API_KEY", None)
+    if not api_key:
+        return None
+    return OpenAI(api_key=api_key)
 
-
-def save_portfolio(df):
-    df.to_csv(PORTFOLIO_FILE, index=False)
-
-
-def load_json_file(path, default):
-    if path.exists():
-        try:
-            return json.loads(path.read_text())
-        except Exception:
-            return default
-    return default
-
-
-def save_json_file(path, value):
-    path.write_text(json.dumps(value, indent=2))
-
-
-def load_notes():
-    return load_json_file(NOTES_FILE, {})
-
-
-def save_notes(notes):
-    save_json_file(NOTES_FILE, notes)
-
-
-def load_alert_state():
-    return load_json_file(ALERT_STATE_FILE, {})
-
-
-def save_alert_state(state):
-    save_json_file(ALERT_STATE_FILE, state)
-
-
-def load_alert_history():
-    return load_json_file(ALERT_HISTORY_FILE, [])
-
-
-def save_alert_history(history):
-    save_json_file(ALERT_HISTORY_FILE, history[:100])
-
-
+# ----------------------------
+# DATA
+# ----------------------------
 @st.cache_data(ttl=300)
 def get_data(ticker):
     df = yf.download(
@@ -262,12 +301,12 @@ def get_data(ticker):
     clean["change_1d"] = close.pct_change() * 100
     clean["change_5d"] = close.pct_change(5) * 100
     clean["distance_ma20"] = ((clean["close"] / clean["ma20"]) - 1) * 100
+    clean["volume"] = 0
 
     valid = clean.dropna(subset=["close", "rsi", "ma20", "ma50"])
     if valid.empty:
         return None
     return clean
-
 
 def score_signal(df):
     valid = df.dropna(subset=["close", "rsi", "ma20", "ma50"])
@@ -312,7 +351,9 @@ def score_signal(df):
     else:
         reasons.append("Overextended")
 
-    if close > ma20 and ma20 > ma50 and rsi < 70 and gap <= 5:
+    if close > ma20 and ma20 > ma50 and rsi < 62 and gap <= 3:
+        signal = "STRONG BUY"
+    elif close > ma20 and ma20 > ma50 and rsi < 70 and gap <= 5:
         signal = "BUY"
     elif rsi > 75 or gap > 8:
         signal = "WAIT"
@@ -320,56 +361,6 @@ def score_signal(df):
         signal = "HOLD"
 
     return signal, int(score), "; ".join(reasons), gap
-
-
-def build_price_chart(df, ticker):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["close"], mode="lines", name="Close", line=dict(width=3)))
-    fig.add_trace(go.Scatter(x=df.index, y=df["ma20"], mode="lines", name="MA20", line=dict(width=2)))
-    fig.add_trace(go.Scatter(x=df.index, y=df["ma50"], mode="lines", name="MA50", line=dict(width=2, dash="dot")))
-    fig.update_layout(
-        title=f"{ticker} Price Trend",
-        template="plotly_white",
-        height=380,
-        margin=dict(l=20, r=20, t=50, b=20),
-        legend=dict(orientation="h")
-    )
-    return fig
-
-
-def build_rsi_chart(df, ticker):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["rsi"], mode="lines", name="RSI", line=dict(width=3)))
-    fig.add_hline(y=70, line_dash="dash")
-    fig.add_hline(y=30, line_dash="dash")
-    fig.update_layout(
-        title=f"{ticker} RSI",
-        template="plotly_white",
-        height=270,
-        margin=dict(l=20, r=20, t=50, b=20),
-        showlegend=False
-    )
-    return fig
-
-
-def build_score_gauge(score, ticker):
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=score,
-        title={"text": f"{ticker} Setup Score"},
-        gauge={
-            "axis": {"range": [0, 100]},
-            "bar": {"thickness": 0.35},
-            "steps": [
-                {"range": [0, 35], "color": "#fee2e2"},
-                {"range": [35, 65], "color": "#dbeafe"},
-                {"range": [65, 100], "color": "#dcfce7"},
-            ],
-        },
-    ))
-    fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=10))
-    return fig
-
 
 def position_plan(price, bucket, account_size):
     if bucket == "Aggressive":
@@ -399,7 +390,6 @@ def position_plan(price, bucket, account_size):
 
     return suggested_dollars, suggested_shares, stop_price, target_price
 
-
 def holding_action(signal, price, avg_cost, stop_price, target_price, rsi):
     if avg_cost <= 0:
         return "NO POSITION", "No tracked position yet."
@@ -413,17 +403,6 @@ def holding_action(signal, price, avg_cost, stop_price, target_price, rsi):
     if signal == "WAIT" and pnl_pct > 0:
         return "REVIEW", f"Stretched while in profit. P/L {pnl_pct:.1f}%"
     return "HOLD", f"Within plan. P/L {pnl_pct:.1f}%"
-
-
-def arrow_text(value):
-    if pd.isna(value):
-        return "—"
-    if value > 0:
-        return f"▲ {value:.2f}%"
-    if value < 0:
-        return f"▼ {value:.2f}%"
-    return f"{value:.2f}%"
-
 
 def maybe_record_alerts(results_df):
     state = load_alert_state()
@@ -448,13 +427,84 @@ def maybe_record_alerts(results_df):
     save_alert_state(state)
     save_alert_history(history)
 
+@st.cache_data(ttl=900)
+def get_news(ticker):
+    symbol = ticker.replace("-USD", "")
+    url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US"
+    try:
+        feed = feedparser.parse(url)
+        items = []
+        for entry in feed.entries[:5]:
+            items.append({
+                "title": entry.get("title", ""),
+                "link": entry.get("link", ""),
+                "published": entry.get("published", "")
+            })
+        return items
+    except Exception:
+        return []
 
-def get_openai_client():
-    api_key = st.secrets.get("OPENAI_API_KEY", None)
-    if not api_key:
+# ----------------------------
+# CHARTS
+# ----------------------------
+def build_price_chart(df, ticker):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df["close"], mode="lines", name="Close", line=dict(width=3)))
+    fig.add_trace(go.Scatter(x=df.index, y=df["ma20"], mode="lines", name="MA20", line=dict(width=2)))
+    fig.add_trace(go.Scatter(x=df.index, y=df["ma50"], mode="lines", name="MA50", line=dict(width=2, dash="dot")))
+    fig.update_layout(
+        title=f"{ticker} Price Trend",
+        template="plotly_white",
+        height=380,
+        margin=dict(l=20, r=20, t=50, b=20),
+        legend=dict(orientation="h")
+    )
+    return fig
+
+def build_rsi_chart(df, ticker):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df["rsi"], mode="lines", name="RSI", line=dict(width=3)))
+    fig.add_hline(y=70, line_dash="dash")
+    fig.add_hline(y=30, line_dash="dash")
+    fig.update_layout(
+        title=f"{ticker} RSI",
+        template="plotly_white",
+        height=270,
+        margin=dict(l=20, r=20, t=50, b=20),
+        showlegend=False
+    )
+    return fig
+
+def build_score_gauge(score, ticker):
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=score,
+        title={"text": f"{ticker} Setup Score"},
+        gauge={
+            "axis": {"range": [0, 100]},
+            "bar": {"thickness": 0.35},
+            "steps": [
+                {"range": [0, 35], "color": "#fee2e2"},
+                {"range": [35, 65], "color": "#dbeafe"},
+                {"range": [65, 100], "color": "#dcfce7"},
+            ],
+        },
+    ))
+    fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=10))
+    return fig
+
+def build_portfolio_bar(df):
+    chart_df = df[df["Market Value"] > 0][["Ticker", "Market Value"]]
+    if chart_df.empty:
         return None
-    return OpenAI(api_key=api_key)
-
+    fig = go.Figure(go.Bar(x=chart_df["Ticker"], y=chart_df["Market Value"]))
+    fig.update_layout(
+        title="Portfolio Value by Ticker",
+        template="plotly_white",
+        height=300,
+        margin=dict(l=20, r=20, t=50, b=20)
+    )
+    return fig
 
 # ----------------------------
 # SIDEBAR
@@ -464,8 +514,8 @@ account_size = st.sidebar.number_input("Account Size ($)", 100.0, 100000.0, 500.
 refresh_seconds = st.sidebar.slider("Auto refresh (seconds)", 60, 900, 300, 30)
 filter_signals = st.sidebar.multiselect(
     "Filter signals",
-    ["BUY", "HOLD", "WAIT", "ERROR"],
-    default=["BUY", "HOLD", "WAIT", "ERROR"]
+    ["STRONG BUY", "BUY", "HOLD", "WAIT", "ERROR"],
+    default=["STRONG BUY", "BUY", "HOLD", "WAIT", "ERROR"]
 )
 
 st.markdown(f"""
@@ -481,18 +531,18 @@ setTimeout(function() {{
 # ----------------------------
 st.markdown("""
 <div class="hero">
-    <div class="kicker">Bright Upgrade</div>
-    <h1 style="margin:4px 0 8px 0;font-size:52px;">Trading Terminal Pro</h1>
+    <div class="kicker">All-In Version</div>
+    <h1 style="margin:4px 0 8px 0;font-size:52px;">Trading Terminal Elite</h1>
     <p style="margin:0;font-size:18px;color:#ffffff !important;">
-        Signals, charts, setup scoring, trade planning, alerts history, notes, chatbot, and broker buttons.
+        Signals, scanner, news, alerts, journal, broker buttons, charts, portfolio, and chatbot.
     </p>
 </div>
 """, unsafe_allow_html=True)
 
-st.success("📡 Live dashboard. Stocks follow market hours. Crypto updates continuously.")
+market_banner()
 
 # ----------------------------
-# DATA BUILD
+# BUILD DATA
 # ----------------------------
 portfolio = load_portfolio()
 portfolio_lookup = {
@@ -500,6 +550,7 @@ portfolio_lookup = {
     for _, row in portfolio.iterrows()
 }
 notes = load_notes()
+journal = load_journal()
 
 results = []
 data_map = {}
@@ -592,26 +643,26 @@ maybe_record_alerts(df_results)
 # ----------------------------
 # TABS
 # ----------------------------
-tab1, tab2, tab3 = st.tabs(["Dashboard", "Alerts", "Chatbot"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Dashboard", "Scanner", "News", "Alerts", "Chatbot"])
 
 with tab1:
     watchlist_size = len(df_results)
+    strong_buy_count = len(df_results[df_results["Signal"] == "STRONG BUY"])
     buy_count = len(df_results[df_results["Signal"] == "BUY"])
     hold_count = len(df_results[df_results["Signal"] == "HOLD"])
-    wait_count = len(df_results[df_results["Signal"] == "WAIT"])
-    top_score = int(df_results["Score"].max()) if not df_results.empty else 0
     portfolio_value = round(df_results["Market Value"].fillna(0).sum(), 2)
+    top_score = int(df_results["Score"].max()) if not df_results.empty else 0
 
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    metrics = [
+    cols = st.columns(6)
+    metric_data = [
         ("Watchlist", watchlist_size),
-        ("BUY", buy_count),
-        ("HOLD", hold_count),
-        ("WAIT", wait_count),
+        ("Strong Buy", strong_buy_count),
+        ("Buy", buy_count),
+        ("Hold", hold_count),
         ("Top Score", top_score),
         ("Portfolio $", f"{portfolio_value:,.0f}")
     ]
-    for col, (label, value) in zip([m1, m2, m3, m4, m5, m6], metrics):
+    for col, (label, value) in zip(cols, metric_data):
         with col:
             st.markdown(f"""
             <div class="metric-card">
@@ -622,9 +673,8 @@ with tab1:
 
     st.markdown("### Best Setups Right Now")
     top3 = df_results.head(3)
-    c1, c2, c3 = st.columns(3)
-
-    for col, (_, row) in zip([c1, c2, c3], top3.iterrows()):
+    cards = st.columns(3)
+    for col, (_, row) in zip(cards, top3.iterrows()):
         with col:
             st.markdown(f"""
             <div class="section-card">
@@ -644,21 +694,21 @@ with tab1:
 
     st.markdown("### Quick Read")
     q1, q2, q3, q4 = st.columns(4)
-
     if not df_results.empty:
         strongest = df_results.iloc[0]["Ticker"]
         hottest = df_results.sort_values("1D %", ascending=False).iloc[0]["Ticker"]
         coolest = df_results.sort_values("RSI", ascending=True).iloc[0]["Ticker"]
-        biggest_gap = df_results.sort_values("Gap %", ascending=False).iloc[0]["Ticker"]
+        extended = df_results.sort_values("Gap %", ascending=False).iloc[0]["Ticker"]
     else:
-        strongest = hottest = coolest = biggest_gap = "N/A"
+        strongest = hottest = coolest = extended = "N/A"
 
-    for col, label, value in [
+    quick = [
         (q1, "Strongest Setup", strongest),
         (q2, "Best 1-Day Move", hottest),
         (q3, "Most Cooled Off", coolest),
-        (q4, "Most Extended", biggest_gap),
-    ]:
+        (q4, "Most Extended", extended),
+    ]
+    for col, label, value in quick:
         with col:
             st.markdown(f"""
             <div class="section-card">
@@ -671,11 +721,10 @@ with tab1:
     display_df = df_results.copy()
     display_df["1D Move"] = display_df["1D %"].apply(arrow_text)
     display_df["5D Move"] = display_df["5D %"].apply(arrow_text)
-
     st.dataframe(
         display_df[[
-            "Ticker", "Bucket", "Price", "1D Move", "5D Move", "RSI", "MA20", "MA50", "Gap %",
-            "Signal", "Score", "Suggested $", "Suggested Shares", "Stop", "Target",
+            "Ticker", "Bucket", "Price", "1D Move", "5D Move", "RSI", "MA20", "MA50",
+            "Gap %", "Signal", "Score", "Suggested $", "Suggested Shares", "Stop", "Target",
             "Shares Owned", "Avg Cost", "Market Value", "Unrealized P/L", "Portfolio Action"
         ]],
         use_container_width=True,
@@ -683,7 +732,6 @@ with tab1:
     )
 
     st.markdown("### Portfolio Tracker")
-    st.caption("Edit your shares and average cost, then save.")
     edited_portfolio = st.data_editor(
         portfolio,
         use_container_width=True,
@@ -695,7 +743,23 @@ with tab1:
         edited_portfolio["Shares"] = pd.to_numeric(edited_portfolio["Shares"], errors="coerce").fillna(0)
         edited_portfolio["Avg Cost"] = pd.to_numeric(edited_portfolio["Avg Cost"], errors="coerce").fillna(0)
         save_portfolio(edited_portfolio)
-        st.success("Portfolio saved. Refresh the page to update calculations.")
+        st.success("Portfolio saved. Refresh to update calculations.")
+
+    portfolio_chart = build_portfolio_bar(df_results)
+    if portfolio_chart is not None:
+        st.plotly_chart(portfolio_chart, use_container_width=True)
+
+    st.markdown("### Trade Journal")
+    edited_journal = st.data_editor(
+        journal,
+        use_container_width=True,
+        hide_index=True,
+        num_rows="dynamic",
+        key="journal_editor"
+    )
+    if st.button("Save Journal"):
+        save_journal(edited_journal)
+        st.success("Journal saved.")
 
     st.markdown("### Terminal Detail")
     selected = st.selectbox("Choose a ticker", df_results["Ticker"].tolist())
@@ -711,6 +775,7 @@ with tab1:
             <div class="section-card">
                 <div class="big-ticker">{selected}</div>
                 <div class="small-note" style="margin-bottom:12px;">{row['Bucket']}</div>
+                <div style="margin-bottom:10px;">{bucket_badge(row['Bucket'])}</div>
                 <div class="badge" style="background:{signal_color(row['Signal'])};">{row['Signal']}</div>
                 <div class="dark-text" style="margin-top:14px;">Price: <b>{row['Price']}</b></div>
                 <div class="dark-text" style="margin-top:8px;">1D %: <b>{row['1D %']}</b></div>
@@ -732,10 +797,10 @@ with tab1:
             with b3:
                 st.link_button("Coinbase", coinbase_url(), use_container_width=True)
 
-            cta1, cta2 = st.columns(2)
-            with cta1:
+            c1, c2 = st.columns(2)
+            with c1:
                 st.link_button("Research", fidelity_research_url(), use_container_width=True)
-            with cta2:
+            with c2:
                 st.link_button("Yahoo Chart", yahoo_chart_url(selected), use_container_width=True)
 
             st.link_button("Yahoo Quote", yahoo_quote_url(selected), use_container_width=True)
@@ -769,59 +834,113 @@ with tab1:
             st.plotly_chart(build_rsi_chart(df_sel, selected), use_container_width=True)
 
 with tab2:
-    st.subheader("Alerts History")
-    st.caption("This panel records signal changes when the app detects a ticker moving from one signal state to another.")
-    history = load_alert_history()
+    st.subheader("Opportunity Scanner")
+    scanner_cols = st.columns(3)
 
+    strong = df_results[df_results["Signal"] == "STRONG BUY"]
+    buy = df_results[df_results["Signal"] == "BUY"]
+    cooled = df_results.sort_values("RSI").head(5)
+
+    with scanner_cols[0]:
+        st.markdown("#### Strong Buy List")
+        if strong.empty:
+            st.info("No Strong Buy setups right now.")
+        else:
+            st.dataframe(strong[["Ticker", "Price", "RSI", "Score", "Suggested $"]], use_container_width=True, hide_index=True)
+
+    with scanner_cols[1]:
+        st.markdown("#### Buy List")
+        if buy.empty:
+            st.info("No Buy setups right now.")
+        else:
+            st.dataframe(buy[["Ticker", "Price", "RSI", "Score", "Suggested $"]], use_container_width=True, hide_index=True)
+
+    with scanner_cols[2]:
+        st.markdown("#### Most Cooled Off")
+        st.dataframe(cooled[["Ticker", "RSI", "1D %", "5D %"]], use_container_width=True, hide_index=True)
+
+with tab3:
+    st.subheader("News Panel")
+    news_ticker = st.selectbox("News ticker", df_results["Ticker"].tolist(), key="news_ticker")
+    news_items = get_news(news_ticker)
+
+    if not news_items:
+        st.info("No news found right now.")
+    else:
+        for item in news_items:
+            st.markdown(f"""
+            <div class="section-card" style="margin-bottom:12px;">
+                <div class="dark-text" style="font-size:18px;font-weight:700;">{item['title']}</div>
+                <div class="small-note" style="margin-top:6px;">{item['published']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.link_button("Open Article", item["link"], use_container_width=False, key=f"news_{news_ticker}_{item['link']}")
+
+with tab4:
+    st.subheader("Alerts History")
+    st.caption("This records signal changes when the app detects a ticker moving from one state to another.")
+    history = load_alert_history()
     if not history:
-        st.info("No alert history yet. Once signals change, they will show up here.")
+        st.info("No alert history yet.")
     else:
         alerts_df = pd.DataFrame(history)
         st.dataframe(alerts_df, use_container_width=True, hide_index=True)
 
-with tab3:
+with tab5:
     st.subheader("Stock Q&A Chatbot")
-    st.caption("Ask about the selected ticker, compare setups, or ask for a simple explanation of the signals.")
+    st.caption("Ask about the selected ticker, compare setups, or explain the current signal.")
 
     client = get_openai_client()
-
     if client is None:
-        st.warning("Add your OpenAI API key in Streamlit app settings as a secret named OPENAI_API_KEY to enable the chatbot.")
+        st.warning("Add your OpenAI API key in Streamlit Secrets as OPENAI_API_KEY to enable the chatbot.")
     else:
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = []
 
-        selected_for_chat = st.selectbox("Chat focus ticker", df_results["Ticker"].tolist(), key="chat_ticker")
-        selected_row = df_results[df_results["Ticker"] == selected_for_chat].iloc[0]
+        chat_ticker = st.selectbox("Chat focus ticker", df_results["Ticker"].tolist(), key="chat_ticker")
+        chat_row = df_results[df_results["Ticker"] == chat_ticker].iloc[0]
+        recent_notes = notes.get(chat_ticker, "")
 
         for message in st.session_state.chat_messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-        prompt = st.chat_input("Ask the chatbot about a ticker, signal, setup, or history")
+        prompt = st.chat_input("Ask about a stock, crypto, signal, or trade setup")
+
+        quick_cols = st.columns(4)
+        quick_prompts = [
+            "Explain this signal",
+            "What is the risk here?",
+            "Compare with BTC-USD",
+            "What would make this a buy?",
+        ]
+        for i, txt in enumerate(quick_prompts):
+            if quick_cols[i].button(txt, key=f"qp_{i}"):
+                prompt = txt
 
         if prompt:
             st.session_state.chat_messages.append({"role": "user", "content": prompt})
 
             summary = f"""
-Ticker: {selected_row['Ticker']}
-Bucket: {selected_row['Bucket']}
-Price: {selected_row['Price']}
-1D %: {selected_row['1D %']}
-5D %: {selected_row['5D %']}
-RSI: {selected_row['RSI']}
-MA20: {selected_row['MA20']}
-MA50: {selected_row['MA50']}
-Gap %: {selected_row['Gap %']}
-Signal: {selected_row['Signal']}
-Score: {selected_row['Score']}
-Reason: {selected_row['Reason']}
-Suggested Buy: {selected_row['Suggested $']}
-Suggested Shares: {selected_row['Suggested Shares']}
-Stop: {selected_row['Stop']}
-Target: {selected_row['Target']}
-Portfolio Action: {selected_row['Portfolio Action']}
-Action Note: {selected_row['Action Note']}
+Ticker: {chat_row['Ticker']}
+Bucket: {chat_row['Bucket']}
+Price: {chat_row['Price']}
+1D %: {chat_row['1D %']}
+5D %: {chat_row['5D %']}
+RSI: {chat_row['RSI']}
+MA20: {chat_row['MA20']}
+MA50: {chat_row['MA50']}
+Gap %: {chat_row['Gap %']}
+Signal: {chat_row['Signal']}
+Score: {chat_row['Score']}
+Reason: {chat_row['Reason']}
+Suggested Buy: {chat_row['Suggested $']}
+Suggested Shares: {chat_row['Suggested Shares']}
+Stop: {chat_row['Stop']}
+Target: {chat_row['Target']}
+Portfolio Action: {chat_row['Portfolio Action']}
+Action Note: {chat_row['Action Note']}
+User Notes: {recent_notes}
 """
 
             try:
@@ -830,19 +949,18 @@ Action Note: {selected_row['Action Note']}
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a practical stock and crypto dashboard assistant. Use the provided dashboard data. Be clear, concise, and explain signals in plain English. Do not claim certainty about future price moves."
+                            "content": "You are a practical stock and crypto trading dashboard assistant. Use the provided dashboard data. Explain clearly in plain English. Do not claim certainty. Focus on setup quality, trend, risk, and what to watch next."
                         },
                         {
                             "role": "user",
-                            "content": f"Dashboard context:\n{summary}\n\nUser question:\n{prompt}"
+                            "content": f"Dashboard context:\n{summary}\n\nQuestion:\n{prompt}"
                         }
                     ]
                 )
                 answer = response.choices[0].message.content
-            except Exception as e:
-                answer = f"Chatbot error: {e}"
+            except Exception:
+                answer = "The chatbot could not respond right now. Recheck your OpenAI key in Streamlit Secrets and reboot the app."
 
             st.session_state.chat_messages.append({"role": "assistant", "content": answer})
-
             with st.chat_message("assistant"):
                 st.markdown(answer)
