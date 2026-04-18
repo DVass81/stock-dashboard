@@ -1,46 +1,12 @@
 import json
 from pathlib import Path
 from urllib.parse import quote_plus
+from datetime import datetime
 
 import feedparser
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-st.set_page_config(page_title="Stock Dashboard", layout="wide")
-
-st.markdown("""
-<style>
-/* Main app text */
-html, body, [class*="css"] {
-    color: #111111 !important;
-}
-
-/* Labels above widgets */
-label, .stSelectbox label, .stMultiSelect label {
-    color: #000000 !important;
-    font-weight: 700 !important;
-}
-
-/* Dropdown selected value */
-div[data-baseweb="select"] > div {
-    color: #000000 !important;
-    font-weight: 700 !important;
-}
-
-/* Dropdown menu items */
-ul[role="listbox"] li,
-div[role="listbox"] div {
-    color: #000000 !important;
-    font-weight: 700 !important;
-}
-
-/* Text inside select boxes */
-div[data-baseweb="select"] * {
-    color: #000000 !important;
-    font-weight: 700 !important;
-}
-</style>
-""", unsafe_allow_html=True)
 import yfinance as yf
 from openai import OpenAI
 from ta.momentum import RSIIndicator
@@ -51,9 +17,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ----------------------------
-# CONFIG
-# ----------------------------
 TICKERS = [
     "NVDA", "MSFT", "AMZN", "GOOGL", "SOUN", "RGTI", "PLUG", "BFGFF",
     "BTC-USD", "ETH-USD", "ADA-USD", "SHIB-USD"
@@ -74,50 +37,44 @@ BUCKETS = {
     "SHIB-USD": "Crypto",
 }
 
-PORTFOLIO_FILE = Path("portfolio_positions.csv")
+JOURNAL_FILE = Path("trade_journal.csv")
 NOTES_FILE = Path("ticker_notes.json")
 ALERT_STATE_FILE = Path("alert_state.json")
 ALERT_HISTORY_FILE = Path("alert_history.json")
-JOURNAL_FILE = Path("trade_journal.csv")
 
-# ----------------------------
-# STYLING
-# ----------------------------
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(180deg, #0b1020 0%, #1e293b 45%, #334155 100%);
+    background: linear-gradient(180deg, #0e172a 0%, #1f2937 40%, #334155 100%);
 }
 .block-container {
-    padding-top: 1.1rem;
+    padding-top: 1rem;
     padding-bottom: 2rem;
-    max-width: 1550px;
-}
-h1, h2, h3, h4, p, div, span, label {
-    color: #f8fafc !important;
+    max-width: 1600px;
 }
 .hero {
     background: linear-gradient(135deg, #22c55e 0%, #2563eb 38%, #9333ea 100%);
     border: 1px solid rgba(255,255,255,0.18);
-    border-radius: 26px;
-    padding: 28px 30px;
-    margin-bottom: 18px;
-    box-shadow: 0 14px 34px rgba(0,0,0,0.28);
+    border-radius: 28px;
+    padding: 28px 32px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.28);
+    margin-bottom: 16px;
 }
 .metric-card {
-    background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid rgba(148, 163, 184, 0.30);
     border-radius: 22px;
     padding: 18px;
-    min-height: 115px;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.14);
+    min-height: 110px;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.14);
 }
 .metric-label {
     color: #334155 !important;
-    font-size: 13px;
-    margin-bottom: 8px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
+    margin-bottom: 8px;
+    font-weight: 700;
 }
 .metric-value {
     color: #0f172a !important;
@@ -125,12 +82,12 @@ h1, h2, h3, h4, p, div, span, label {
     font-weight: 800;
     line-height: 1;
 }
-.section-card {
+.card {
     background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: 22px;
     padding: 18px;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.14);
+    box-shadow: 0 10px 26px rgba(0,0,0,0.12);
 }
 .badge {
     display: inline-block;
@@ -141,10 +98,8 @@ h1, h2, h3, h4, p, div, span, label {
     font-size: 12px;
     letter-spacing: 0.04em;
 }
-.small-note {
-    color: #475569 !important;
-    font-size: 13px;
-}
+.dark { color: #0f172a !important; }
+.muted { color: #475569 !important; }
 .big-ticker {
     color: #0f172a !important;
     font-size: 34px;
@@ -158,41 +113,30 @@ h1, h2, h3, h4, p, div, span, label {
     letter-spacing: 0.08em;
     font-weight: 700;
 }
-.dark-text {
-    color: #0f172a !important;
+.h-chip {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 12px;
+    color: white !important;
 }
-.good {
-    color: #16a34a !important;
-    font-weight: 800;
-}
-.bad {
-    color: #dc2626 !important;
-    font-weight: 800;
-}
-.warn {
-    color: #d97706 !important;
-    font-weight: 800;
-}
-div[data-baseweb="select"] * {
-    color: black !important;
-}
-div[data-baseweb="select"] {
-    background: white !important;
-    border-radius: 10px !important;
-}
-div[data-testid="stDataEditor"] * {
-    color: black !important;
-}
+div[data-baseweb="select"] * { color: black !important; }
+div[data-baseweb="select"] { background: white !important; border-radius: 10px !important; }
+div[data-testid="stDataEditor"] * { color: black !important; }
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+}
+[data-testid="stDataFrame"] * { color: black !important; }
+.stTabs [data-baseweb="tab"] * { color: black !important; }
+.stTabs [role="tab"][aria-selected="true"] {
+    background: white !important;
+    border-radius: 12px 12px 0 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------------------
-# FILE HELPERS
-# ----------------------------
-def load_json_file(path, default):
+def load_json_file(path: Path, default):
     if path.exists():
         try:
             return json.loads(path.read_text())
@@ -200,23 +144,30 @@ def load_json_file(path, default):
             return default
     return default
 
-def save_json_file(path, value):
+def save_json_file(path: Path, value):
     path.write_text(json.dumps(value, indent=2))
 
-def ensure_portfolio_file():
-    if not PORTFOLIO_FILE.exists():
-        pd.DataFrame([{"Ticker": t, "Shares": 0, "Avg Cost": 0} for t in TICKERS]).to_csv(PORTFOLIO_FILE, index=False)
+def ensure_journal_file():
+    if not JOURNAL_FILE.exists():
+        pd.DataFrame(columns=["Date", "Ticker", "Action", "Price", "Shares", "Fees", "Notes"]).to_csv(JOURNAL_FILE, index=False)
 
-def load_portfolio():
-    ensure_portfolio_file()
-    df = pd.read_csv(PORTFOLIO_FILE)
+def load_journal():
+    ensure_journal_file()
+    df = pd.read_csv(JOURNAL_FILE)
+    if df.empty:
+        return pd.DataFrame(columns=["Date", "Ticker", "Action", "Price", "Shares", "Fees", "Notes"])
+    for col in ["Price", "Shares", "Fees"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df["Ticker"] = df["Ticker"].astype(str)
-    df["Shares"] = pd.to_numeric(df["Shares"], errors="coerce").fillna(0.0)
-    df["Avg Cost"] = pd.to_numeric(df["Avg Cost"], errors="coerce").fillna(0.0)
-    return df
+    df["Action"] = df["Action"].astype(str).str.upper()
+    df["Notes"] = df["Notes"].astype(str)
+    return df.sort_values("Date", kind="stable").reset_index(drop=True)
 
-def save_portfolio(df):
-    df.to_csv(PORTFOLIO_FILE, index=False)
+def save_journal(df):
+    out = df.copy()
+    out["Date"] = pd.to_datetime(out["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out.to_csv(JOURNAL_FILE, index=False)
 
 def load_notes():
     return load_json_file(NOTES_FILE, {})
@@ -234,24 +185,11 @@ def load_alert_history():
     return load_json_file(ALERT_HISTORY_FILE, [])
 
 def save_alert_history(history):
-    save_json_file(ALERT_HISTORY_FILE, history[:150])
+    save_json_file(ALERT_HISTORY_FILE, history[:200])
 
-def ensure_journal_file():
-    if not JOURNAL_FILE.exists():
-        pd.DataFrame(columns=["Date", "Ticker", "Action", "Price", "Shares", "Why", "Result"]).to_csv(JOURNAL_FILE, index=False)
-
-def load_journal():
-    ensure_journal_file()
-    return pd.read_csv(JOURNAL_FILE)
-
-def save_journal(df):
-    df.to_csv(JOURNAL_FILE, index=False)
-
-# ----------------------------
-# APP HELPERS
-# ----------------------------
 def signal_color(signal):
     return {
+        "STRONG BUY": "#15803d",
         "BUY": "#22c55e",
         "HOLD": "#3b82f6",
         "WAIT": "#f59e0b",
@@ -259,8 +197,15 @@ def signal_color(signal):
         "REDUCE": "#ef4444",
         "REVIEW": "#f97316",
         "NO POSITION": "#64748b",
-        "STRONG BUY": "#15803d",
     }.get(signal, "#64748b")
+
+def bucket_color(bucket):
+    return {
+        "Long Term": "#2563eb",
+        "Aggressive": "#f97316",
+        "Speculative": "#9333ea",
+        "Crypto": "#14b8a6",
+    }.get(bucket, "#64748b")
 
 def yahoo_chart_url(ticker):
     return f"https://finance.yahoo.com/quote/{quote_plus(ticker)}/chart"
@@ -289,15 +234,6 @@ def arrow_text(value):
         return f"▼ {value:.2f}%"
     return f"{value:.2f}%"
 
-def bucket_badge(bucket):
-    colors = {
-        "Long Term": "#2563eb",
-        "Aggressive": "#f97316",
-        "Speculative": "#a855f7",
-        "Crypto": "#14b8a6",
-    }
-    return f'<span class="badge" style="background:{colors.get(bucket, "#64748b")};">{bucket}</span>'
-
 def market_banner():
     st.success("📡 Live dashboard. Stocks follow market hours. Crypto updates continuously.")
 
@@ -307,27 +243,15 @@ def get_openai_client():
         return None
     return OpenAI(api_key=api_key)
 
-# ----------------------------
-# DATA
-# ----------------------------
 @st.cache_data(ttl=300)
 def get_data(ticker):
-    df = yf.download(
-        ticker,
-        period="6mo",
-        interval="1d",
-        auto_adjust=True,
-        progress=False
-    )
-
+    df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True, progress=False)
     if df.empty or "Close" not in df.columns:
         return None
-
     close = df["Close"]
     if isinstance(close, pd.DataFrame):
         close = close.iloc[:, 0]
     close = pd.to_numeric(close, errors="coerce")
-
     clean = pd.DataFrame(index=df.index)
     clean["close"] = close
     clean["rsi"] = RSIIndicator(close=close).rsi()
@@ -336,23 +260,18 @@ def get_data(ticker):
     clean["change_1d"] = close.pct_change() * 100
     clean["change_5d"] = close.pct_change(5) * 100
     clean["distance_ma20"] = ((clean["close"] / clean["ma20"]) - 1) * 100
-    clean["volume"] = 0
-
+    clean["vol20"] = clean["close"].pct_change().rolling(20).std() * 100
     valid = clean.dropna(subset=["close", "rsi", "ma20", "ma50"])
-    if valid.empty:
-        return None
-    return clean
+    return None if valid.empty else clean
 
 def score_signal(df):
     valid = df.dropna(subset=["close", "rsi", "ma20", "ma50"])
     latest = valid.iloc[-1]
-
     close = float(latest["close"])
     ma20 = float(latest["ma20"])
     ma50 = float(latest["ma50"])
     rsi = float(latest["rsi"])
     gap = ((close / ma20) - 1) * 100
-
     score = 0
     reasons = []
 
@@ -422,15 +341,12 @@ def position_plan(price, bucket, account_size):
 
     stop_price = round(price * (1 - stop_pct), 4)
     target_price = round(price * (1 + target_pct), 4)
-
     return suggested_dollars, suggested_shares, stop_price, target_price
 
 def holding_action(signal, price, avg_cost, stop_price, target_price, rsi):
     if avg_cost <= 0:
         return "NO POSITION", "No tracked position yet."
-
     pnl_pct = ((price / avg_cost) - 1) * 100
-
     if price <= stop_price:
         return "REDUCE", f"Below stop area. P/L {pnl_pct:.1f}%"
     if price >= target_price or rsi >= 75:
@@ -439,26 +355,85 @@ def holding_action(signal, price, avg_cost, stop_price, target_price, rsi):
         return "REVIEW", f"Stretched while in profit. P/L {pnl_pct:.1f}%"
     return "HOLD", f"Within plan. P/L {pnl_pct:.1f}%"
 
+def build_portfolio_from_journal(journal, price_lookup):
+    positions = {}
+    if journal.empty:
+        return pd.DataFrame(columns=["Ticker", "Bucket", "Shares Owned", "Avg Cost", "Current Price", "Cost Basis", "Market Value", "Unrealized P/L"])
+
+    work = journal.dropna(subset=["Date"]).sort_values("Date", kind="stable")
+    for _, row in work.iterrows():
+        ticker = row["Ticker"]
+        action = str(row["Action"]).upper()
+        shares = float(row["Shares"])
+        price = float(row["Price"])
+        fees = float(row["Fees"])
+        if ticker not in positions:
+            positions[ticker] = {"shares": 0.0, "cost_basis_total": 0.0}
+        pos = positions[ticker]
+        if action == "BUY":
+            pos["shares"] += shares
+            pos["cost_basis_total"] += (shares * price) + fees
+        elif action == "SELL":
+            if pos["shares"] <= 0:
+                continue
+            avg_cost = pos["cost_basis_total"] / pos["shares"] if pos["shares"] else 0
+            sell_shares = min(shares, pos["shares"])
+            pos["shares"] -= sell_shares
+            pos["cost_basis_total"] -= avg_cost * sell_shares
+            pos["cost_basis_total"] = max(pos["cost_basis_total"], 0)
+
+    rows = []
+    for ticker, pos in positions.items():
+        shares_owned = round(pos["shares"], 6)
+        if shares_owned <= 0:
+            continue
+        current_price = price_lookup.get(ticker, 0)
+        cost_basis = round(pos["cost_basis_total"], 2)
+        avg_cost = round(cost_basis / shares_owned, 4) if shares_owned else 0
+        market_value = round(current_price * shares_owned, 2)
+        unrealized = round(market_value - cost_basis, 2)
+        rows.append({
+            "Ticker": ticker,
+            "Bucket": BUCKETS.get(ticker, "Other"),
+            "Shares Owned": shares_owned,
+            "Avg Cost": avg_cost,
+            "Current Price": round(current_price, 4) if "USD" in ticker and ticker not in ["BTC-USD", "ETH-USD"] else round(current_price, 2),
+            "Cost Basis": cost_basis,
+            "Market Value": market_value,
+            "Unrealized P/L": unrealized,
+        })
+    return pd.DataFrame(rows).sort_values("Market Value", ascending=False).reset_index(drop=True) if rows else pd.DataFrame(columns=["Ticker", "Bucket", "Shares Owned", "Avg Cost", "Current Price", "Cost Basis", "Market Value", "Unrealized P/L"])
+
+def build_performance_series(journal, price_lookup):
+    if journal.empty:
+        return pd.DataFrame(columns=["Date", "Invested Capital", "Current Value"])
+    dates = sorted(pd.to_datetime(journal["Date"], errors="coerce").dropna().dt.date.unique())
+    rows = []
+    for d in dates:
+        subset = journal[pd.to_datetime(journal["Date"], errors="coerce").dt.date <= d].copy()
+        temp_port = build_portfolio_from_journal(subset, price_lookup)
+        invested = float(temp_port["Cost Basis"].sum()) if not temp_port.empty else 0.0
+        current = float(temp_port["Market Value"].sum()) if not temp_port.empty else 0.0
+        rows.append({"Date": pd.to_datetime(d), "Invested Capital": round(invested, 2), "Current Value": round(current, 2)})
+    return pd.DataFrame(rows)
+
 def maybe_record_alerts(results_df):
     state = load_alert_state()
     history = load_alert_history()
-
     for _, row in results_df.iterrows():
         ticker = row["Ticker"]
         new_signal = row["Signal"]
         old_signal = state.get(ticker)
-
         if old_signal is not None and old_signal != new_signal:
             history.insert(0, {
+                "Timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
                 "Ticker": ticker,
                 "From": old_signal,
                 "To": new_signal,
                 "Price": row["Price"],
                 "Score": row["Score"]
             })
-
         state[ticker] = new_signal
-
     save_alert_state(state)
     save_alert_history(history)
 
@@ -469,7 +444,7 @@ def get_news(ticker):
     try:
         feed = feedparser.parse(url)
         items = []
-        for entry in feed.entries[:5]:
+        for entry in feed.entries[:6]:
             items.append({
                 "title": entry.get("title", ""),
                 "link": entry.get("link", ""),
@@ -479,21 +454,12 @@ def get_news(ticker):
     except Exception:
         return []
 
-# ----------------------------
-# CHARTS
-# ----------------------------
 def build_price_chart(df, ticker):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=df["close"], mode="lines", name="Close", line=dict(width=3)))
     fig.add_trace(go.Scatter(x=df.index, y=df["ma20"], mode="lines", name="MA20", line=dict(width=2)))
     fig.add_trace(go.Scatter(x=df.index, y=df["ma50"], mode="lines", name="MA50", line=dict(width=2, dash="dot")))
-    fig.update_layout(
-        title=f"{ticker} Price Trend",
-        template="plotly_white",
-        height=380,
-        margin=dict(l=20, r=20, t=50, b=20),
-        legend=dict(orientation="h")
-    )
+    fig.update_layout(title=f"{ticker} Price Trend", template="plotly_white", height=380, margin=dict(l=20, r=20, t=50, b=20), legend=dict(orientation="h"))
     return fig
 
 def build_rsi_chart(df, ticker):
@@ -501,13 +467,7 @@ def build_rsi_chart(df, ticker):
     fig.add_trace(go.Scatter(x=df.index, y=df["rsi"], mode="lines", name="RSI", line=dict(width=3)))
     fig.add_hline(y=70, line_dash="dash")
     fig.add_hline(y=30, line_dash="dash")
-    fig.update_layout(
-        title=f"{ticker} RSI",
-        template="plotly_white",
-        height=270,
-        margin=dict(l=20, r=20, t=50, b=20),
-        showlegend=False
-    )
+    fig.update_layout(title=f"{ticker} RSI", template="plotly_white", height=270, margin=dict(l=20, r=20, t=50, b=20), showlegend=False)
     return fig
 
 def build_score_gauge(score, ticker):
@@ -529,29 +489,25 @@ def build_score_gauge(score, ticker):
     return fig
 
 def build_portfolio_bar(df):
-    chart_df = df[df["Market Value"] > 0][["Ticker", "Market Value"]]
-    if chart_df.empty:
+    if df.empty:
         return None
-    fig = go.Figure(go.Bar(x=chart_df["Ticker"], y=chart_df["Market Value"]))
-    fig.update_layout(
-        title="Portfolio Value by Ticker",
-        template="plotly_white",
-        height=300,
-        margin=dict(l=20, r=20, t=50, b=20)
-    )
+    fig = go.Figure(go.Bar(x=df["Ticker"], y=df["Market Value"]))
+    fig.update_layout(title="Portfolio Value by Ticker", template="plotly_white", height=320, margin=dict(l=20, r=20, t=50, b=20))
     return fig
 
-# ----------------------------
-# SIDEBAR
-# ----------------------------
+def build_performance_chart(perf_df):
+    if perf_df.empty:
+        return None
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=perf_df["Date"], y=perf_df["Invested Capital"], mode="lines", name="Invested Capital"))
+    fig.add_trace(go.Scatter(x=perf_df["Date"], y=perf_df["Current Value"], mode="lines", name="Current Value"))
+    fig.update_layout(title="Invested Capital vs Current Value", template="plotly_white", height=320, margin=dict(l=20, r=20, t=50, b=20), legend=dict(orientation="h"))
+    return fig
+
 st.sidebar.header("Controls")
 account_size = st.sidebar.number_input("Account Size ($)", 100.0, 100000.0, 500.0, 50.0)
 refresh_seconds = st.sidebar.slider("Auto refresh (seconds)", 60, 900, 300, 30)
-filter_signals = st.sidebar.multiselect(
-    "Filter signals",
-    ["STRONG BUY", "BUY", "HOLD", "WAIT", "ERROR"],
-    default=["STRONG BUY", "BUY", "HOLD", "WAIT", "ERROR"]
-)
+filter_signals = st.sidebar.multiselect("Filter signals", ["STRONG BUY", "BUY", "HOLD", "WAIT", "ERROR"], default=["STRONG BUY", "BUY", "HOLD", "WAIT", "ERROR"])
 
 st.markdown(f"""
 <script>
@@ -561,99 +517,55 @@ setTimeout(function() {{
 </script>
 """, unsafe_allow_html=True)
 
-# ----------------------------
-# HEADER
-# ----------------------------
 st.markdown("""
 <div class="hero">
-    <div class="kicker">All-In Version</div>
+    <div class="kicker">Ferrari + Engine Build</div>
     <h1 style="margin:4px 0 8px 0;font-size:52px;">Trading Terminal Elite</h1>
     <p style="margin:0;font-size:18px;color:#ffffff !important;">
-        Signals, scanner, news, alerts, journal, broker buttons, charts, portfolio, and chatbot.
+        Scanner, portfolio, journal-driven positions, alerts, news, broker buttons, charts, and AI assistant.
     </p>
 </div>
 """, unsafe_allow_html=True)
 
 market_banner()
 
-# ----------------------------
-# BUILD DATA
-# ----------------------------
-portfolio = load_portfolio()
-portfolio_lookup = {
-    row["Ticker"]: {"Shares": float(row["Shares"]), "Avg Cost": float(row["Avg Cost"])}
-    for _, row in portfolio.iterrows()
-}
 notes = load_notes()
 journal = load_journal()
 
 results = []
 data_map = {}
+price_lookup = {}
 
 for ticker in TICKERS:
     df = get_data(ticker)
-
     if df is None:
         results.append({
-            "Ticker": ticker,
-            "Bucket": BUCKETS.get(ticker, "Other"),
-            "Price": None,
-            "1D %": None,
-            "5D %": None,
-            "RSI": None,
-            "MA20": None,
-            "MA50": None,
-            "Gap %": None,
-            "Signal": "ERROR",
-            "Score": 0,
-            "Reason": "Not enough valid data",
-            "Suggested $": None,
-            "Suggested Shares": None,
-            "Stop": None,
-            "Target": None,
-            "Shares Owned": 0,
-            "Avg Cost": 0,
-            "Market Value": 0,
-            "Unrealized P/L": 0,
-            "Portfolio Action": "REVIEW",
-            "Action Note": "Needs review",
+            "Ticker": ticker, "Bucket": BUCKETS.get(ticker, "Other"), "Price": None,
+            "1D %": None, "5D %": None, "RSI": None, "MA20": None, "MA50": None,
+            "Gap %": None, "Signal": "ERROR", "Score": 0, "Reason": "Not enough valid data",
+            "Suggested $": None, "Suggested Shares": None, "Stop": None, "Target": None
         })
         continue
 
     data_map[ticker] = df
     signal, score, reason, gap = score_signal(df)
-
     valid = df.dropna(subset=["close", "rsi", "ma20", "ma50"])
     latest = valid.iloc[-1]
-
-    price = round(float(latest["close"]), 4 if "USD" in ticker and ticker not in ["BTC-USD", "ETH-USD"] else 2)
-    rsi = round(float(latest["rsi"]), 1)
-    ma20 = round(float(latest["ma20"]), 4 if "USD" in ticker and ticker not in ["BTC-USD", "ETH-USD"] else 2)
-    ma50 = round(float(latest["ma50"]), 4 if "USD" in ticker and ticker not in ["BTC-USD", "ETH-USD"] else 2)
-    change_1d = round(float(latest["change_1d"]), 2)
-    change_5d = round(float(latest["change_5d"]), 2)
-    gap = round(float(gap), 2)
-
+    price = float(latest["close"])
+    price_lookup[ticker] = price
     bucket = BUCKETS.get(ticker, "Other")
     suggested_dollars, suggested_shares, stop_price, target_price = position_plan(price, bucket, account_size)
-
-    pos = portfolio_lookup.get(ticker, {"Shares": 0, "Avg Cost": 0})
-    shares_owned = float(pos["Shares"])
-    avg_cost = float(pos["Avg Cost"])
-    market_value = round(shares_owned * price, 2)
-    unrealized = round((price - avg_cost) * shares_owned, 2) if shares_owned > 0 else 0
-    portfolio_action, action_note = holding_action(signal, price, avg_cost, stop_price, target_price, rsi)
 
     results.append({
         "Ticker": ticker,
         "Bucket": bucket,
-        "Price": price,
-        "1D %": change_1d,
-        "5D %": change_5d,
-        "RSI": rsi,
-        "MA20": ma20,
-        "MA50": ma50,
-        "Gap %": gap,
+        "Price": round(price, 4) if "USD" in ticker and ticker not in ["BTC-USD", "ETH-USD"] else round(price, 2),
+        "1D %": round(float(latest["change_1d"]), 2),
+        "5D %": round(float(latest["change_5d"]), 2),
+        "RSI": round(float(latest["rsi"]), 1),
+        "MA20": round(float(latest["ma20"]), 4) if "USD" in ticker and ticker not in ["BTC-USD", "ETH-USD"] else round(float(latest["ma20"]), 2),
+        "MA50": round(float(latest["ma50"]), 4) if "USD" in ticker and ticker not in ["BTC-USD", "ETH-USD"] else round(float(latest["ma50"]), 2),
+        "Gap %": round(float(gap), 2),
         "Signal": signal,
         "Score": score,
         "Reason": reason,
@@ -661,24 +573,41 @@ for ticker in TICKERS:
         "Suggested Shares": suggested_shares,
         "Stop": stop_price,
         "Target": target_price,
-        "Shares Owned": shares_owned,
-        "Avg Cost": round(avg_cost, 4),
-        "Market Value": market_value,
-        "Unrealized P/L": unrealized,
-        "Portfolio Action": portfolio_action,
-        "Action Note": action_note,
     })
 
-df_results = pd.DataFrame(results)
-df_results = df_results[df_results["Signal"].isin(filter_signals)]
-df_results = df_results.sort_values(by="Score", ascending=False).reset_index(drop=True)
+market_df = pd.DataFrame(results)
+market_df = market_df[market_df["Signal"].isin(filter_signals)].sort_values(by="Score", ascending=False).reset_index(drop=True)
 
+portfolio_df = build_portfolio_from_journal(journal, price_lookup)
+perf_df = build_performance_series(journal, price_lookup)
+
+portfolio_lookup = {}
+if not portfolio_df.empty:
+    for _, row in portfolio_df.iterrows():
+        portfolio_lookup[row["Ticker"]] = row
+
+enriched = []
+for _, row in market_df.iterrows():
+    t = row["Ticker"]
+    port = portfolio_lookup.get(t)
+    shares_owned = float(port["Shares Owned"]) if port is not None else 0.0
+    avg_cost = float(port["Avg Cost"]) if port is not None else 0.0
+    market_value = float(port["Market Value"]) if port is not None else 0.0
+    unrealized = float(port["Unrealized P/L"]) if port is not None else 0.0
+    action, action_note = holding_action(row["Signal"], float(row["Price"]) if pd.notna(row["Price"]) else 0, avg_cost, float(row["Stop"]) if pd.notna(row["Stop"]) else 0, float(row["Target"]) if pd.notna(row["Target"]) else 0, float(row["RSI"]) if pd.notna(row["RSI"]) else 0)
+    item = row.to_dict()
+    item["Shares Owned"] = shares_owned
+    item["Avg Cost"] = round(avg_cost, 4)
+    item["Market Value"] = round(market_value, 2)
+    item["Unrealized P/L"] = round(unrealized, 2)
+    item["Portfolio Action"] = action
+    item["Action Note"] = action_note
+    enriched.append(item)
+
+df_results = pd.DataFrame(enriched)
 maybe_record_alerts(df_results)
 
-# ----------------------------
-# TABS
-# ----------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Dashboard", "Scanner", "News", "Alerts", "Chatbot"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Dashboard", "Scanner", "Portfolio", "Journal", "News & Alerts", "Chatbot"])
 
 with tab1:
     watchlist_size = len(df_results)
@@ -686,143 +615,66 @@ with tab1:
     buy_count = len(df_results[df_results["Signal"] == "BUY"])
     hold_count = len(df_results[df_results["Signal"] == "HOLD"])
     portfolio_value = round(df_results["Market Value"].fillna(0).sum(), 2)
-    top_score = int(df_results["Score"].max()) if not df_results.empty else 0
+    unrealized_total = round(df_results["Unrealized P/L"].fillna(0).sum(), 2)
 
     cols = st.columns(6)
-    metric_data = [
-        ("Watchlist", watchlist_size),
-        ("Strong Buy", strong_buy_count),
-        ("Buy", buy_count),
-        ("Hold", hold_count),
-        ("Top Score", top_score),
-        ("Portfolio $", f"{portfolio_value:,.0f}")
-    ]
-    for col, (label, value) in zip(cols, metric_data):
+    metrics = [("Watchlist", watchlist_size), ("Strong Buy", strong_buy_count), ("Buy", buy_count), ("Hold", hold_count), ("Portfolio $", f"{portfolio_value:,.0f}"), ("Unrealized P/L", f"{unrealized_total:,.0f}")]
+    for col, (label, value) in zip(cols, metrics):
         with col:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">{label}</div>
-                <div class="metric-value">{value}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><div class="metric-label">{label}</div><div class="metric-value">{value}</div></div>', unsafe_allow_html=True)
 
-    st.markdown("### Best Setups Right Now")
+    st.markdown("### Top Opportunities")
     top3 = df_results.head(3)
-    cards = st.columns(3)
-    for col, (_, row) in zip(cards, top3.iterrows()):
+    card_cols = st.columns(3)
+    for col, (_, row) in zip(card_cols, top3.iterrows()):
         with col:
-            st.markdown(f"""
-            <div class="section-card">
+            st.markdown(f'''
+            <div class="card">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div>
-                        <div class="big-ticker">{row['Ticker']}</div>
-                        <div class="small-note">{row['Bucket']}</div>
+                        <div class="big-ticker">{row["Ticker"]}</div>
+                        <div class="muted">{row["Bucket"]}</div>
                     </div>
-                    <div class="badge" style="background:{signal_color(row['Signal'])};">{row['Signal']}</div>
+                    <div class="badge" style="background:{signal_color(row["Signal"])};">{row["Signal"]}</div>
                 </div>
-                <div class="dark-text" style="margin-top:12px;">Score: <b>{row['Score']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">Price: <b>{row['Price']}</b></div>
-                <div class="small-note" style="margin-top:8px;">{row['Reason']}</div>
-                <div class="dark-text" style="margin-top:10px;">Suggested Buy: <b>${row['Suggested $']}</b></div>
+                <div class="dark" style="margin-top:12px;">Score: <b>{row["Score"]}</b></div>
+                <div class="dark" style="margin-top:8px;">Price: <b>{row["Price"]}</b></div>
+                <div class="muted" style="margin-top:8px;">{row["Reason"]}</div>
+                <div class="dark" style="margin-top:10px;">Suggested Buy: <b>${row["Suggested $"]}</b></div>
             </div>
-            """, unsafe_allow_html=True)
+            ''', unsafe_allow_html=True)
 
-    st.markdown("### Quick Read")
-    q1, q2, q3, q4 = st.columns(4)
-    if not df_results.empty:
-        strongest = df_results.iloc[0]["Ticker"]
-        hottest = df_results.sort_values("1D %", ascending=False).iloc[0]["Ticker"]
-        coolest = df_results.sort_values("RSI", ascending=True).iloc[0]["Ticker"]
-        extended = df_results.sort_values("Gap %", ascending=False).iloc[0]["Ticker"]
-    else:
-        strongest = hottest = coolest = extended = "N/A"
-
-    quick = [
-        (q1, "Strongest Setup", strongest),
-        (q2, "Best 1-Day Move", hottest),
-        (q3, "Most Cooled Off", coolest),
-        (q4, "Most Extended", extended),
-    ]
-    for col, label, value in quick:
-        with col:
-            st.markdown(f"""
-            <div class="section-card">
-                <div class="metric-label">{label}</div>
-                <div class="dark-text" style="font-size:28px;font-weight:800;">{value}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown("### Ranked Watchlist")
+    st.markdown("### Watchlist")
     display_df = df_results.copy()
     display_df["1D Move"] = display_df["1D %"].apply(arrow_text)
     display_df["5D Move"] = display_df["5D %"].apply(arrow_text)
-    st.dataframe(
-        display_df[[
-            "Ticker", "Bucket", "Price", "1D Move", "5D Move", "RSI", "MA20", "MA50",
-            "Gap %", "Signal", "Score", "Suggested $", "Suggested Shares", "Stop", "Target",
-            "Shares Owned", "Avg Cost", "Market Value", "Unrealized P/L", "Portfolio Action"
-        ]],
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.markdown("### Portfolio Tracker")
-    edited_portfolio = st.data_editor(
-        portfolio,
-        use_container_width=True,
-        num_rows="fixed",
-        hide_index=True,
-        key="portfolio_editor"
-    )
-    if st.button("Save Portfolio"):
-        edited_portfolio["Shares"] = pd.to_numeric(edited_portfolio["Shares"], errors="coerce").fillna(0)
-        edited_portfolio["Avg Cost"] = pd.to_numeric(edited_portfolio["Avg Cost"], errors="coerce").fillna(0)
-        save_portfolio(edited_portfolio)
-        st.success("Portfolio saved. Refresh to update calculations.")
-
-    portfolio_chart = build_portfolio_bar(df_results)
-    if portfolio_chart is not None:
-        st.plotly_chart(portfolio_chart, use_container_width=True)
-
-    st.markdown("### Trade Journal")
-    edited_journal = st.data_editor(
-        journal,
-        use_container_width=True,
-        hide_index=True,
-        num_rows="dynamic",
-        key="journal_editor"
-    )
-    if st.button("Save Journal"):
-        save_journal(edited_journal)
-        st.success("Journal saved.")
+    st.dataframe(display_df[["Ticker", "Bucket", "Price", "1D Move", "5D Move", "RSI", "MA20", "MA50", "Gap %", "Signal", "Score", "Suggested $", "Suggested Shares", "Stop", "Target", "Shares Owned", "Avg Cost", "Market Value", "Unrealized P/L", "Portfolio Action"]], use_container_width=True, hide_index=True)
 
     st.markdown("### Terminal Detail")
-    selected = st.selectbox("Choose a ticker", df_results["Ticker"].tolist())
-
+    selected = st.selectbox("Choose a ticker", df_results["Ticker"].tolist(), key="detail_ticker")
     if selected in data_map:
         row = df_results[df_results["Ticker"] == selected].iloc[0]
         df_sel = data_map[selected]
-
         left, mid, right = st.columns([1.05, 1.15, 2.1])
 
         with left:
-            st.markdown(f"""
-            <div class="section-card">
+            st.markdown(f'''
+            <div class="card">
                 <div class="big-ticker">{selected}</div>
-                <div class="small-note" style="margin-bottom:12px;">{row['Bucket']}</div>
-                <div style="margin-bottom:10px;">{bucket_badge(row['Bucket'])}</div>
-                <div class="badge" style="background:{signal_color(row['Signal'])};">{row['Signal']}</div>
-                <div class="dark-text" style="margin-top:14px;">Price: <b>{row['Price']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">1D %: <b>{row['1D %']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">5D %: <b>{row['5D %']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">RSI: <b>{row['RSI']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">MA20: <b>{row['MA20']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">MA50: <b>{row['MA50']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">Gap %: <b>{row['Gap %']}</b></div>
-                <div class="dark-text" style="margin-top:12px;">Reason:</div>
-                <div class="small-note" style="margin-top:6px;">{row['Reason']}</div>
+                <div class="muted" style="margin-bottom:10px;">{row["Bucket"]}</div>
+                <div class="h-chip" style="background:{bucket_color(row["Bucket"])};">{row["Bucket"]}</div>
+                <div class="badge" style="background:{signal_color(row["Signal"])}; margin-top:10px;">{row["Signal"]}</div>
+                <div class="dark" style="margin-top:14px;">Price: <b>{row["Price"]}</b></div>
+                <div class="dark" style="margin-top:8px;">1D %: <b>{row["1D %"]}</b></div>
+                <div class="dark" style="margin-top:8px;">5D %: <b>{row["5D %"]}</b></div>
+                <div class="dark" style="margin-top:8px;">RSI: <b>{row["RSI"]}</b></div>
+                <div class="dark" style="margin-top:8px;">MA20: <b>{row["MA20"]}</b></div>
+                <div class="dark" style="margin-top:8px;">MA50: <b>{row["MA50"]}</b></div>
+                <div class="dark" style="margin-top:8px;">Gap %: <b>{row["Gap %"]}</b></div>
+                <div class="dark" style="margin-top:12px;">Reason:</div>
+                <div class="muted" style="margin-top:6px;">{row["Reason"]}</div>
             </div>
-            """, unsafe_allow_html=True)
+            ''', unsafe_allow_html=True)
 
             b1, b2, b3 = st.columns(3)
             with b1:
@@ -837,29 +689,24 @@ with tab1:
                 st.link_button("Research", fidelity_research_url(), use_container_width=True)
             with c2:
                 st.link_button("Yahoo Chart", yahoo_chart_url(selected), use_container_width=True)
-
             st.link_button("Yahoo Quote", yahoo_quote_url(selected), use_container_width=True)
 
         with mid:
             st.plotly_chart(build_score_gauge(row["Score"], selected), use_container_width=True)
-
-            st.markdown(f"""
-            <div class="section-card">
+            st.markdown(f'''
+            <div class="card">
                 <div class="metric-label">Trade Plan</div>
-                <div class="dark-text" style="margin-top:10px;">Suggested Buy: <b>${row['Suggested $']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">Suggested Shares: <b>{row['Suggested Shares']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">Stop Loss: <b>{row['Stop']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">Target Price: <b>{row['Target']}</b></div>
-                <div class="dark-text" style="margin-top:8px;">Portfolio Action:
-                    <span class="badge" style="background:{signal_color(row['Portfolio Action'])};">{row['Portfolio Action']}</span>
-                </div>
-                <div class="small-note" style="margin-top:8px;">{row['Action Note']}</div>
+                <div class="dark" style="margin-top:10px;">Suggested Buy: <b>${row["Suggested $"]}</b></div>
+                <div class="dark" style="margin-top:8px;">Suggested Shares: <b>{row["Suggested Shares"]}</b></div>
+                <div class="dark" style="margin-top:8px;">Stop Loss: <b>{row["Stop"]}</b></div>
+                <div class="dark" style="margin-top:8px;">Target Price: <b>{row["Target"]}</b></div>
+                <div class="dark" style="margin-top:8px;">Portfolio Action: <span class="badge" style="background:{signal_color(row["Portfolio Action"])};">{row["Portfolio Action"]}</span></div>
+                <div class="muted" style="margin-top:8px;">{row["Action Note"]}</div>
             </div>
-            """, unsafe_allow_html=True)
-
+            ''', unsafe_allow_html=True)
             current_note = notes.get(selected, "")
             new_note = st.text_area("Ticker Notes", value=current_note, height=160, key=f"note_{selected}")
-            if st.button("Save Note", key=f"save_{selected}"):
+            if st.button("Save Note", key=f"save_note_{selected}"):
                 notes[selected] = new_note
                 save_notes(notes)
                 st.success(f"Saved note for {selected}")
@@ -870,92 +717,92 @@ with tab1:
 
 with tab2:
     st.subheader("Opportunity Scanner")
-    scanner_cols = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
+    strong_df = df_results[df_results["Signal"] == "STRONG BUY"]
+    buy_df = df_results[df_results["Signal"] == "BUY"]
+    cooled_df = df_results.sort_values("RSI").head(5)
+    extended_df = df_results.sort_values("Gap %", ascending=False).head(5)
 
-    strong = df_results[df_results["Signal"] == "STRONG BUY"]
-    buy = df_results[df_results["Signal"] == "BUY"]
-    cooled = df_results.sort_values("RSI").head(5)
-
-    with scanner_cols[0]:
-        st.markdown("#### Strong Buy List")
-        if strong.empty:
-            st.info("No Strong Buy setups right now.")
-        else:
-            st.dataframe(strong[["Ticker", "Price", "RSI", "Score", "Suggested $"]], use_container_width=True, hide_index=True)
-
-    with scanner_cols[1]:
-        st.markdown("#### Buy List")
-        if buy.empty:
-            st.info("No Buy setups right now.")
-        else:
-            st.dataframe(buy[["Ticker", "Price", "RSI", "Score", "Suggested $"]], use_container_width=True, hide_index=True)
-
-    with scanner_cols[2]:
+    with c1:
+        st.markdown("#### Strong Buy")
+        st.dataframe(strong_df[["Ticker", "Price", "RSI", "Score", "Suggested $"]] if not strong_df.empty else pd.DataFrame(columns=["Ticker", "Price", "RSI", "Score", "Suggested $"]), use_container_width=True, hide_index=True)
+    with c2:
+        st.markdown("#### Buy")
+        st.dataframe(buy_df[["Ticker", "Price", "RSI", "Score", "Suggested $"]] if not buy_df.empty else pd.DataFrame(columns=["Ticker", "Price", "RSI", "Score", "Suggested $"]), use_container_width=True, hide_index=True)
+    with c3:
         st.markdown("#### Most Cooled Off")
-        st.dataframe(cooled[["Ticker", "RSI", "1D %", "5D %"]], use_container_width=True, hide_index=True)
+        st.dataframe(cooled_df[["Ticker", "RSI", "1D %", "5D %"]], use_container_width=True, hide_index=True)
+    with c4:
+        st.markdown("#### Most Extended")
+        st.dataframe(extended_df[["Ticker", "Gap %", "RSI", "1D %"]], use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("News Panel")
-    news_ticker = st.selectbox("News ticker", df_results["Ticker"].tolist(), key="news_ticker")
-    news_items = get_news(news_ticker)
-
-    if not news_items:
-        st.info("No news found right now.")
+    st.subheader("Portfolio")
+    if portfolio_df.empty:
+        st.info("No open positions yet. Add buys and sells in the Journal tab.")
     else:
-        for item in news_items:
-            st.markdown(f"""
-            <div class="section-card" style="margin-bottom:12px;">
-                <div class="dark-text" style="font-size:18px;font-weight:700;">{item['title']}</div>
-                <div class="small-note" style="margin-top:6px;">{item['published']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.link_button("Open Article", item["link"], use_container_width=False, key=f"news_{news_ticker}_{item['link']}")
+        st.dataframe(portfolio_df, use_container_width=True, hide_index=True)
+        p1, p2 = st.columns(2)
+        with p1:
+            bar = build_portfolio_bar(portfolio_df)
+            if bar is not None:
+                st.plotly_chart(bar, use_container_width=True)
+        with p2:
+            perf = build_performance_chart(perf_df)
+            if perf is not None:
+                st.plotly_chart(perf, use_container_width=True)
 
 with tab4:
-    st.subheader("Alerts History")
-    st.caption("This records signal changes when the app detects a ticker moving from one state to another.")
-    history = load_alert_history()
-    if not history:
-        st.info("No alert history yet.")
-    else:
-        alerts_df = pd.DataFrame(history)
-        st.dataframe(alerts_df, use_container_width=True, hide_index=True)
+    st.subheader("Trade Journal")
+    st.caption("The journal is the source of truth. Buys and sells here automatically update the portfolio.")
+    edited_journal = st.data_editor(journal, use_container_width=True, hide_index=True, num_rows="dynamic", key="journal_editor")
+    if st.button("Save Journal"):
+        save_journal(edited_journal)
+        st.success("Journal saved. Refresh to update portfolio calculations.")
 
 with tab5:
-    st.subheader("Stock Q&A Chatbot")
-    st.caption("Ask about the selected ticker, compare setups, or explain the current signal.")
+    news_col, alerts_col = st.columns([1.3, 1.0])
+    with news_col:
+        st.subheader("News")
+        news_ticker = st.selectbox("News ticker", df_results["Ticker"].tolist(), key="news_ticker")
+        news_items = get_news(news_ticker)
+        if not news_items:
+            st.info("No news found right now.")
+        else:
+            for i, item in enumerate(news_items):
+                st.markdown(f'<div class="card" style="margin-bottom:12px;"><div class="dark" style="font-size:18px;font-weight:700;">{item["title"]}</div><div class="muted" style="margin-top:6px;">{item["published"]}</div></div>', unsafe_allow_html=True)
+                st.link_button("Open Article", item["link"], key=f"news_link_{i}_{news_ticker}")
+    with alerts_col:
+        st.subheader("Alerts")
+        history = load_alert_history()
+        if not history:
+            st.info("No alert history yet.")
+        else:
+            st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
 
+with tab6:
+    st.subheader("AI Trading Assistant")
+    st.caption("Ask about a setup, compare tickers, or ask what risk matters most.")
     client = get_openai_client()
     if client is None:
-        st.warning("Add your OpenAI API key in Streamlit Secrets as OPENAI_API_KEY to enable the chatbot.")
+        st.warning("Add OPENAI_API_KEY in Streamlit Secrets to enable the chatbot.")
     else:
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = []
-
         chat_ticker = st.selectbox("Chat focus ticker", df_results["Ticker"].tolist(), key="chat_ticker")
         chat_row = df_results[df_results["Ticker"] == chat_ticker].iloc[0]
         recent_notes = notes.get(chat_ticker, "")
-
         for message in st.session_state.chat_messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
-
         prompt = st.chat_input("Ask about a stock, crypto, signal, or trade setup")
-
-        quick_cols = st.columns(4)
-        quick_prompts = [
-            "Explain this signal",
-            "What is the risk here?",
-            "Compare with BTC-USD",
-            "What would make this a buy?",
-        ]
+        qp_cols = st.columns(4)
+        quick_prompts = ["Explain this signal", "What is the risk here?", "Compare with BTC-USD", "What would make this a buy?"]
         for i, txt in enumerate(quick_prompts):
-            if quick_cols[i].button(txt, key=f"qp_{i}"):
+            if qp_cols[i].button(txt, key=f"qp_{i}"):
                 prompt = txt
-
         if prompt:
             st.session_state.chat_messages.append({"role": "user", "content": prompt})
-
             summary = f"""
 Ticker: {chat_row['Ticker']}
 Bucket: {chat_row['Bucket']}
@@ -977,25 +824,17 @@ Portfolio Action: {chat_row['Portfolio Action']}
 Action Note: {chat_row['Action Note']}
 User Notes: {recent_notes}
 """
-
             try:
                 response = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a practical stock and crypto trading dashboard assistant. Use the provided dashboard data. Explain clearly in plain English. Do not claim certainty. Focus on setup quality, trend, risk, and what to watch next."
-                        },
-                        {
-                            "role": "user",
-                            "content": f"Dashboard context:\n{summary}\n\nQuestion:\n{prompt}"
-                        }
+                        {"role": "system", "content": "You are a practical stock and crypto dashboard assistant. Use the provided dashboard data. Be clear, concise, and grounded. Do not claim certainty about future price moves. Focus on setup quality, trend, risk, and what to watch next."},
+                        {"role": "user", "content": f"Dashboard context:\n{summary}\n\nUser question:\n{prompt}"}
                     ]
                 )
                 answer = response.choices[0].message.content
             except Exception:
                 answer = "The chatbot could not respond right now. Recheck your OpenAI key in Streamlit Secrets and reboot the app."
-
             st.session_state.chat_messages.append({"role": "assistant", "content": answer})
             with st.chat_message("assistant"):
                 st.markdown(answer)
