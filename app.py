@@ -14,7 +14,10 @@ st.set_page_config(
     layout="wide"
 )
 
-TICKERS = ["NVDA", "MSFT", "AMZN", "GOOGL", "SOUN", "RGTI", "PLUG"]
+TICKERS = [
+    "NVDA", "MSFT", "AMZN", "GOOGL", "SOUN", "RGTI", "PLUG", "BFGFF",
+    "BTC-USD", "ETH-USD", "ADA-USD", "SHIB-USD"
+]
 
 BUCKETS = {
     "NVDA": "Long Term",
@@ -24,6 +27,11 @@ BUCKETS = {
     "SOUN": "Aggressive",
     "RGTI": "Aggressive",
     "PLUG": "Aggressive",
+    "BFGFF": "Speculative",
+    "BTC-USD": "Crypto",
+    "ETH-USD": "Crypto",
+    "ADA-USD": "Crypto",
+    "SHIB-USD": "Crypto",
 }
 
 PORTFOLIO_FILE = Path("portfolio_positions.csv")
@@ -102,6 +110,14 @@ h1, h2, h3, h4, p, div, span, label {
     letter-spacing: 0.08em;
     font-weight: 700;
 }
+.green-arrow {
+    color: #22c55e !important;
+    font-weight: 800;
+}
+.red-arrow {
+    color: #ef4444 !important;
+    font-weight: 800;
+}
 div[data-baseweb="select"] * {
     color: black !important;
 }
@@ -118,6 +134,7 @@ div[data-testid="stDataEditor"] * {
 </style>
 """, unsafe_allow_html=True)
 
+
 def signal_color(signal):
     return {
         "BUY": "#16a34a",
@@ -129,20 +146,30 @@ def signal_color(signal):
         "NO POSITION": "#64748b",
     }.get(signal, "#64748b")
 
+
+def market_banner():
+    st.info("📡 Dashboard live. Stocks follow market hours. Crypto updates continuously.")
+
+
 def yahoo_chart_url(ticker):
     return f"https://finance.yahoo.com/quote/{quote_plus(ticker)}/chart"
+
 
 def yahoo_quote_url(ticker):
     return f"https://finance.yahoo.com/quote/{quote_plus(ticker)}"
 
+
 def fidelity_trade_url():
     return "https://www.fidelity.com/trading/overview"
+
 
 def fidelity_research_url():
     return "https://digital.fidelity.com/prgw/digital/research/src"
 
+
 def robinhood_url():
     return "https://robinhood.com/us/en/"
+
 
 def ensure_portfolio_file():
     if not PORTFOLIO_FILE.exists():
@@ -150,6 +177,7 @@ def ensure_portfolio_file():
             {"Ticker": t, "Shares": 0, "Avg Cost": 0}
             for t in TICKERS
         ]).to_csv(PORTFOLIO_FILE, index=False)
+
 
 def load_portfolio():
     ensure_portfolio_file()
@@ -159,8 +187,10 @@ def load_portfolio():
     df["Avg Cost"] = pd.to_numeric(df["Avg Cost"], errors="coerce").fillna(0.0)
     return df
 
+
 def save_portfolio(df):
     df.to_csv(PORTFOLIO_FILE, index=False)
+
 
 def load_notes():
     if NOTES_FILE.exists():
@@ -170,8 +200,10 @@ def load_notes():
             return {}
     return {}
 
+
 def save_notes(notes):
     NOTES_FILE.write_text(json.dumps(notes, indent=2))
+
 
 def get_data(ticker):
     df = yf.download(
@@ -205,6 +237,7 @@ def get_data(ticker):
     if valid.empty:
         return None
     return clean
+
 
 def score_signal(df):
     valid = df.dropna(subset=["close", "rsi", "ma20", "ma50"])
@@ -258,6 +291,7 @@ def score_signal(df):
 
     return signal, int(score), "; ".join(reasons), gap
 
+
 def build_price_chart(df, ticker):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=df["close"], mode="lines", name="Close", line=dict(width=3)))
@@ -272,6 +306,7 @@ def build_price_chart(df, ticker):
     )
     return fig
 
+
 def build_rsi_chart(df, ticker):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=df["rsi"], mode="lines", name="RSI", line=dict(width=3)))
@@ -285,6 +320,7 @@ def build_rsi_chart(df, ticker):
         showlegend=False
     )
     return fig
+
 
 def build_score_gauge(score, ticker):
     fig = go.Figure(go.Indicator(
@@ -304,10 +340,19 @@ def build_score_gauge(score, ticker):
     fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=10))
     return fig
 
+
 def position_plan(price, bucket, account_size):
     if bucket == "Aggressive":
         allocation_pct = 0.15
         stop_pct = 0.10
+        target_pct = 0.20
+    elif bucket == "Crypto":
+        allocation_pct = 0.10
+        stop_pct = 0.12
+        target_pct = 0.22
+    elif bucket == "Speculative":
+        allocation_pct = 0.10
+        stop_pct = 0.12
         target_pct = 0.20
     else:
         allocation_pct = 0.25
@@ -315,11 +360,15 @@ def position_plan(price, bucket, account_size):
         target_pct = 0.15
 
     suggested_dollars = round(account_size * allocation_pct, 2)
-    suggested_shares = int(suggested_dollars // price) if price and price > 0 else 0
-    stop_price = round(price * (1 - stop_pct), 2)
-    target_price = round(price * (1 + target_pct), 2)
+    suggested_shares = round(suggested_dollars / price, 6) if price and price > 0 else 0
+    if bucket not in ["Crypto"]:
+        suggested_shares = int(suggested_dollars // price) if price and price > 0 else 0
+
+    stop_price = round(price * (1 - stop_pct), 4)
+    target_price = round(price * (1 + target_pct), 4)
 
     return suggested_dollars, suggested_shares, stop_price, target_price
+
 
 def holding_action(signal, price, avg_cost, stop_price, target_price, rsi):
     if avg_cost <= 0:
@@ -334,6 +383,17 @@ def holding_action(signal, price, avg_cost, stop_price, target_price, rsi):
     if signal == "WAIT" and pnl_pct > 0:
         return "REVIEW", f"Stretched while in profit. P/L {pnl_pct:.1f}%"
     return "HOLD", f"Within plan. P/L {pnl_pct:.1f}%"
+
+
+def arrow_text(value):
+    if pd.isna(value):
+        return "—"
+    if value > 0:
+        return f"▲ {value:.2f}%"
+    if value < 0:
+        return f"▼ {value:.2f}%"
+    return f"{value:.2f}%"
+
 
 # SIDEBAR
 st.sidebar.header("Controls")
@@ -363,6 +423,8 @@ st.markdown("""
     </p>
 </div>
 """, unsafe_allow_html=True)
+
+market_banner()
 
 portfolio = load_portfolio()
 portfolio_lookup = {
@@ -410,10 +472,10 @@ for ticker in TICKERS:
     valid = df.dropna(subset=["close", "rsi", "ma20", "ma50"])
     latest = valid.iloc[-1]
 
-    price = round(float(latest["close"]), 2)
+    price = round(float(latest["close"]), 4 if "USD" in ticker and ticker != "BTC-USD" and ticker != "ETH-USD" else 2)
     rsi = round(float(latest["rsi"]), 1)
-    ma20 = round(float(latest["ma20"]), 2)
-    ma50 = round(float(latest["ma50"]), 2)
+    ma20 = round(float(latest["ma20"]), 4 if "USD" in ticker and ticker != "BTC-USD" and ticker != "ETH-USD" else 2)
+    ma50 = round(float(latest["ma50"]), 4 if "USD" in ticker and ticker != "BTC-USD" and ticker != "ETH-USD" else 2)
     change_1d = round(float(latest["change_1d"]), 2)
     change_5d = round(float(latest["change_5d"]), 2)
     gap = round(float(gap), 2)
@@ -446,7 +508,7 @@ for ticker in TICKERS:
         "Stop": stop_price,
         "Target": target_price,
         "Shares Owned": shares_owned,
-        "Avg Cost": round(avg_cost, 2),
+        "Avg Cost": round(avg_cost, 4),
         "Market Value": market_value,
         "Unrealized P/L": unrealized,
         "Portfolio Action": portfolio_action,
@@ -465,7 +527,6 @@ top_score = int(df_results["Score"].max()) if not df_results.empty else 0
 portfolio_value = round(df_results["Market Value"].fillna(0).sum(), 2)
 
 m1, m2, m3, m4, m5, m6 = st.columns(6)
-
 metrics = [
     ("Watchlist", watchlist_size),
     ("BUY", buy_count),
@@ -531,9 +592,13 @@ for col, label, value in [
         """, unsafe_allow_html=True)
 
 st.markdown("### Ranked Watchlist")
+display_df = df_results.copy()
+display_df["1D Move"] = display_df["1D %"].apply(arrow_text)
+display_df["5D Move"] = display_df["5D %"].apply(arrow_text)
+
 st.dataframe(
-    df_results[[
-        "Ticker", "Bucket", "Price", "1D %", "5D %", "RSI", "MA20", "MA50", "Gap %",
+    display_df[[
+        "Ticker", "Bucket", "Price", "1D Move", "5D Move", "RSI", "MA20", "MA50", "Gap %",
         "Signal", "Score", "Suggested $", "Suggested Shares", "Stop", "Target",
         "Shares Owned", "Avg Cost", "Market Value", "Unrealized P/L", "Portfolio Action"
     ]],
