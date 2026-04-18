@@ -3,3 +3,4 @@ openai
 pandas
 plotly
 feedparser
+yfinance
