@@ -761,11 +761,13 @@ def prepare_journal_ticket(action_type, ticker):
     if ticker is None or df_results.empty:
         return
     row = df_results[df_results["Ticker"] == ticker].iloc[0]
-    st.session_state["journal_ticker"] = ticker
-    st.session_state["journal_action"] = action_type
-    st.session_state["journal_price_input"] = float(price_lookup.get(ticker, 0))
-    st.session_state["journal_shares_input"] = float(row["Suggested Shares"]) if action_type == "BUY" else float(max(row["Shares Owned"], 0))
-    st.session_state["journal_notes_input"] = f"Prepared from {ticker} | signal {row['Signal']} | stop {row['Stop']} | target {row['Target']}"
+    st.session_state["journal_preset"] = {
+        "ticker": ticker,
+        "action": action_type,
+        "price": float(price_lookup.get(ticker, 0)),
+        "shares": float(row["Suggested Shares"]) if action_type == "BUY" else float(max(row["Shares Owned"], 0)),
+        "notes": f"Prepared from {ticker} | signal {row['Signal']} | stop {row['Stop']} | target {row['Target']}"
+    }
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Command Center","Dashboard","Scanner","Portfolio","Journal","News & Alerts","Chatbot"])
 
@@ -1040,46 +1042,64 @@ with tab5:
     st.subheader("Trade Journal")
     st.caption("The journal is the source of truth. Portfolio and performance update from entries here.")
     form_col, table_col = st.columns([1.0, 1.35])
+
     with form_col:
         st.markdown("### Add Journal Entry")
+
         default_ticker = selected_ticker if selected_ticker else TICKERS[0]
         if "journal_ticker" not in st.session_state:
             st.session_state["journal_ticker"] = default_ticker
         if "journal_action" not in st.session_state:
             st.session_state["journal_action"] = "BUY"
+        if "journal_reason" not in st.session_state:
+            st.session_state["journal_reason"] = REASONS[0]
+
+        preset = st.session_state.pop("journal_preset", None)
+        if preset:
+            st.session_state["journal_ticker"] = preset["ticker"]
+            st.session_state["journal_action"] = preset["action"]
+            st.session_state["journal_price_default"] = preset["price"]
+            st.session_state["journal_shares_default"] = preset["shares"]
+            st.session_state["journal_notes_default"] = preset["notes"]
+
         j_date = st.date_input("Date", value=datetime.today())
         j_ticker = st.selectbox("Ticker", TICKERS, key="journal_ticker")
         j_action = st.selectbox("Action", ACTIONS, key="journal_action")
         j_reason = st.selectbox("Reason", REASONS, key="journal_reason")
+
         current_market_price = price_lookup.get(j_ticker, 0.0)
         current_row = df_results[df_results["Ticker"] == j_ticker]
         current_signal = current_row["Signal"].iloc[0] if not current_row.empty else "N/A"
         suggested_shares = float(current_row["Suggested Shares"].iloc[0]) if not current_row.empty else 0.0
         stop_val = current_row["Stop"].iloc[0] if not current_row.empty else 0
         target_val = current_row["Target"].iloc[0] if not current_row.empty else 0
-        if "journal_price_input" not in st.session_state:
-            st.session_state["journal_price_input"] = float(current_market_price)
-        if "journal_shares_input" not in st.session_state:
-            st.session_state["journal_shares_input"] = float(suggested_shares)
-        if "journal_notes_input" not in st.session_state:
-            st.session_state["journal_notes_input"] = ""
-        if st.button("Use Suggested Trade Plan"):
-            st.session_state["journal_price_input"] = float(current_market_price)
-            st.session_state["journal_shares_input"] = float(suggested_shares)
-            st.session_state["journal_notes_input"] = f"Signal {current_signal}; stop {stop_val}; target {target_val}"
+
+        price_default = float(st.session_state.pop("journal_price_default", current_market_price))
+        shares_default = float(st.session_state.pop("journal_shares_default", suggested_shares))
+        notes_default = st.session_state.pop("journal_notes_default", "")
+
         st.markdown(f'<div class="card-soft"><div class="metric-label">Trade Ticket Assist</div><div class="dark">Current Price: <b>{round(current_market_price, 4) if "USD" in j_ticker and j_ticker not in ["BTC-USD","ETH-USD"] else round(current_market_price, 2)}</b></div><div class="dark" style="margin-top:8px;">Current Signal: <b>{current_signal}</b></div><div class="dark" style="margin-top:8px;">Suggested Shares: <b>{suggested_shares}</b></div><div class="dark" style="margin-top:8px;">Suggested Stop: <b>{stop_val}</b></div><div class="dark" style="margin-top:8px;">Suggested Target: <b>{target_val}</b></div></div>', unsafe_allow_html=True)
-        j_price = st.number_input("Price", min_value=0.0, step=0.01, format="%.4f", key="journal_price_input")
-        j_shares = st.number_input("Shares", min_value=0.0, step=1.0, format="%.6f", key="journal_shares_input")
+
+        if st.button("Use Suggested Trade Plan"):
+            st.session_state["journal_price_default"] = float(current_market_price)
+            st.session_state["journal_shares_default"] = float(suggested_shares)
+            st.session_state["journal_notes_default"] = f"Signal {current_signal}; stop {stop_val}; target {target_val}"
+            st.rerun()
+
+        j_price = st.number_input("Price", min_value=0.0, step=0.01, format="%.4f", value=price_default)
+        j_shares = st.number_input("Shares", min_value=0.0, step=1.0, format="%.6f", value=shares_default)
         j_fees = st.number_input("Fees", min_value=0.0, value=0.0, step=0.01, format="%.2f")
-        j_notes = st.text_area("Notes", height=120, key="journal_notes_input")
-        estimated_new_value = float(portfolio_df["MarketValue"].sum()) + (j_price * j_shares if j_action == "BUY" else 0) if "MarketValue" in portfolio_df.columns else float(portfolio_df["Market Value"].sum()) + (j_price * j_shares if j_action == "BUY" else 0)
+        j_notes = st.text_area("Notes", height=120, value=notes_default)
+
+        estimated_new_value = float(portfolio_df["Market Value"].sum()) + (j_price * j_shares if j_action == "BUY" else 0)
         concentration_note = ""
         if estimated_new_value > 0 and j_action == "BUY":
             current_mv = float(portfolio_df[portfolio_df["Ticker"] == j_ticker]["Market Value"].sum()) if not portfolio_df.empty else 0.0
             new_concentration = round(((current_mv + (j_price * j_shares)) / estimated_new_value) * 100, 1)
             concentration_note = f"Estimated concentration after trade: {new_concentration}%"
+
         checklist = [
-            ("Trend aligned?", current_signal in ["STRONG BUY","BUY"] if j_action == "BUY" else True),
+            ("Trend aligned?", current_signal in ["STRONG BUY", "BUY"] if j_action == "BUY" else True),
             ("Risk understood?", True),
             ("Position size acceptable?", True),
             ("Reason selected?", j_reason != ""),
@@ -1089,29 +1109,46 @@ with tab5:
             st.markdown(f"- {'✅' if ok else '⚠️'} {label}")
         if concentration_note:
             st.markdown(f"- 📌 {concentration_note}")
+
         if st.button("Add Journal Entry"):
-            new_row = pd.DataFrame([{"Date": pd.to_datetime(j_date), "Ticker": j_ticker, "Action": j_action, "Reason": j_reason, "Price": j_price, "Shares": j_shares, "Fees": j_fees, "Notes": j_notes}])
+            new_row = pd.DataFrame([{
+                "Date": pd.to_datetime(j_date),
+                "Ticker": j_ticker,
+                "Action": j_action,
+                "Reason": j_reason,
+                "Price": j_price,
+                "Shares": j_shares,
+                "Fees": j_fees,
+                "Notes": j_notes
+            }])
             updated = pd.concat([journal, new_row], ignore_index=True)
             save_journal(updated)
-            st.session_state["journal_price_input"] = float(current_market_price)
-            st.session_state["journal_shares_input"] = 0.0
-            st.session_state["journal_notes_input"] = ""
-            st.success("Journal entry added. Refresh the app to update everything.")
+            st.session_state["journal_price_default"] = float(current_market_price)
+            st.session_state["journal_shares_default"] = 0.0
+            st.session_state["journal_notes_default"] = ""
+            st.success("Journal entry added.")
+            st.rerun()
+
     with table_col:
         st.markdown("### Journal Table")
         edited_journal = st.data_editor(journal, use_container_width=True, hide_index=True, num_rows="dynamic", key="journal_editor")
         if st.button("Save Journal Table"):
             save_journal(edited_journal)
-            st.success("Journal saved. Refresh to update portfolio calculations.")
+            st.success("Journal saved.")
+            st.rerun()
+
         st.markdown("### Journal Analytics")
         a1, a2, a3, a4 = st.columns(4)
         a1.metric("Closed Trades", analytics["closed_trades"])
         a2.metric("Realized P/L", f"${analytics['realized_total']:,.0f}")
         a3.metric("Win Rate", f"{analytics['win_rate']}%")
         a4.metric("Most Traded", analytics["most_traded_ticker"])
+
         st.markdown(f'<div class="card"><div class="metric-label">Journal Insights</div><div class="dark">Most Profitable Reason: <b>{analytics["most_profitable_reason"]}</b></div></div>', unsafe_allow_html=True)
+
         if analytics["best_trade"] is not None:
-            bt = analytics["best_trade"]; wt = analytics["worst_trade"]
+            bt = analytics["best_trade"]
+            wt = analytics["worst_trade"]
             st.markdown(f'<div class="card"><div class="metric-label">Best vs Worst Closed Trade</div><div class="dark">Best: <b>{bt["Ticker"]}</b> | {bt["Realized P/L"]}</div><div class="dark" style="margin-top:8px;">Worst: <b>{wt["Ticker"]}</b> | {wt["Realized P/L"]}</div></div>', unsafe_allow_html=True)
 
 with tab6:
