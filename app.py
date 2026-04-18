@@ -62,32 +62,47 @@ ALERT_HISTORY_FILE = Path("alert_history.json")
 # ============================================================
 st.markdown("""
 <style>
+:root {
+    --bg: #eef4fb;
+    --card: #ffffff;
+    --card-soft: #f8fbff;
+    --text: #0f172a;
+    --muted: #475569;
+    --line: rgba(148, 163, 184, 0.24);
+    --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    --green: #16a34a;
+    --amber: #d97706;
+    --red: #dc2626;
+    --blue: #2563eb;
+    --violet: #7c3aed;
+}
+
 .stApp {
-    background: linear-gradient(180deg, #0f172a 0%, #1e293b 40%, #334155 100%);
+    background: linear-gradient(180deg, #f5f8fd 0%, #eef4fb 45%, #e8f0fa 100%);
 }
 .block-container {
     padding-top: 1rem;
-    padding-bottom: 2rem;
-    max-width: 1650px;
+    padding-bottom: 2.5rem;
+    max-width: 1680px;
 }
 .hero {
-    background: linear-gradient(135deg, #22c55e 0%, #2563eb 38%, #9333ea 100%);
-    border: 1px solid rgba(255,255,255,0.18);
+    background: linear-gradient(135deg, #ffffff 0%, #eff6ff 40%, #f5f3ff 100%);
+    border: 1px solid var(--line);
     border-radius: 28px;
-    padding: 28px 32px;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.28);
-    margin-bottom: 16px;
+    padding: 30px 34px;
+    box-shadow: var(--shadow);
+    margin-bottom: 18px;
 }
 .metric-card {
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-    border: 1px solid rgba(148, 163, 184, 0.30);
-    border-radius: 22px;
-    padding: 18px;
-    min-height: 110px;
-    box-shadow: 0 10px 26px rgba(0,0,0,0.14);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 20px;
+    min-height: 118px;
+    box-shadow: var(--shadow);
 }
 .metric-label {
-    color: #334155 !important;
+    color: var(--muted) !important;
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -95,17 +110,56 @@ st.markdown("""
     font-weight: 700;
 }
 .metric-value {
-    color: #0f172a !important;
+    color: var(--text) !important;
     font-size: 38px;
     font-weight: 800;
     line-height: 1;
 }
 .card {
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-    border: 1px solid rgba(148, 163, 184, 0.22);
-    border-radius: 22px;
-    padding: 18px;
-    box-shadow: 0 10px 26px rgba(0,0,0,0.12);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow: var(--shadow);
+}
+.card-soft {
+    background: var(--card-soft);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 16px;
+    box-shadow: var(--shadow);
+}
+.brief-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow: var(--shadow);
+}
+.brief-title {
+    color: var(--text) !important;
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 12px;
+}
+.brief-row {
+    color: var(--text) !important;
+    background: #eef2ff;
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+.brief-row:nth-child(even) {
+    background: #f8fbff;
+}
+.attention-row {
+    color: var(--text) !important;
+    background: #fff7ed;
+    border-left: 4px solid #f97316;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
 }
 .badge {
     display: inline-block;
@@ -124,65 +178,59 @@ st.markdown("""
     font-size: 12px;
     color: white !important;
 }
-.dark { color: #0f172a !important; }
-.muted { color: #475569 !important; }
+.dark { color: var(--text) !important; }
+.muted { color: var(--muted) !important; }
 .big-ticker {
-    color: #0f172a !important;
+    color: var(--text) !important;
     font-size: 34px;
     font-weight: 800;
     line-height: 1;
 }
 .kicker {
-    color: #dbeafe !important;
-    font-size: 13px;
+    color: #4f46e5 !important;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
+    font-weight: 800;
+}
+.section-title {
+    color: var(--text) !important;
+    font-size: 24px;
+    font-weight: 800;
+    margin: 10px 0 14px 0;
+}
+.focus-ribbon {
+    background: linear-gradient(90deg, #dbeafe 0%, #ede9fe 100%);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 10px 14px;
+    color: var(--text) !important;
     font-weight: 700;
 }
-.good { color: #15803d !important; font-weight: 800; }
-.warn { color: #d97706 !important; font-weight: 800; }
-.bad { color: #dc2626 !important; font-weight: 800; }
-.brief-card {
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 22px;
+.empty-state {
+    background: #ffffff;
+    border: 1px dashed rgba(148, 163, 184, 0.45);
+    border-radius: 18px;
     padding: 18px;
-    box-shadow: 0 10px 26px rgba(0,0,0,0.12);
+    color: var(--text) !important;
 }
-.brief-title {
-    color: #0f172a !important;
-    font-size: 20px;
-    font-weight: 800;
-    margin-bottom: 12px;
+.empty-state .muted {
+    color: var(--muted) !important;
 }
-.brief-row {
-    color: #0f172a !important;
-    background: #eef2ff;
-    border-radius: 12px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    font-weight: 600;
-}
-.brief-row:nth-child(even) {
-    background: #f8fafc;
-}
-.attention-row {
-    color: #0f172a !important;
-    background: #fff7ed;
-    border-left: 4px solid #f97316;
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
-}
-div[data-baseweb="select"] * { color: black !important; }
+div[data-baseweb="select"] * { color: #000000 !important; }
 div[data-baseweb="select"] { background: white !important; border-radius: 10px !important; }
-div[data-testid="stDataEditor"] * { color: black !important; }
-[data-testid="stSidebar"] { background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); }
-[data-testid="stDataFrame"] * { color: black !important; }
-.stTabs [data-baseweb="tab"] * { color: black !important; }
+div[data-testid="stDataEditor"] * { color: #000000 !important; }
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+}
+[data-testid="stDataFrame"] * { color: #000000 !important; }
+.stTabs [data-baseweb="tab"] * { color: #000000 !important; }
 .stTabs [role="tab"][aria-selected="true"] {
     background: white !important;
     border-radius: 12px 12px 0 0 !important;
+}
+button[kind="secondary"] {
+    border-radius: 12px !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -262,11 +310,11 @@ def save_alert_history(history):
 def signal_color(signal):
     return {
         "STRONG BUY": "#15803d",
-        "BUY": "#22c55e",
-        "HOLD": "#3b82f6",
-        "WAIT": "#f59e0b",
-        "ERROR": "#ef4444",
-        "REDUCE": "#ef4444",
+        "BUY": "#16a34a",
+        "HOLD": "#2563eb",
+        "WAIT": "#d97706",
+        "ERROR": "#dc2626",
+        "REDUCE": "#dc2626",
         "REVIEW": "#f97316",
         "NO POSITION": "#64748b",
     }.get(signal, "#64748b")
@@ -276,8 +324,8 @@ def bucket_color(bucket):
     return {
         "Long Term": "#2563eb",
         "Aggressive": "#f97316",
-        "Speculative": "#9333ea",
-        "Crypto": "#14b8a6",
+        "Speculative": "#7c3aed",
+        "Crypto": "#0f766e",
     }.get(bucket, "#64748b")
 
 
@@ -324,6 +372,16 @@ def get_openai_client():
     if not api_key:
         return None
     return OpenAI(api_key=api_key)
+
+
+def show_empty_state(title, body, next_step):
+    st.markdown(f"""
+    <div class="empty-state">
+        <div class="dark" style="font-size:18px;font-weight:800;">{title}</div>
+        <div class="muted" style="margin-top:8px;">{body}</div>
+        <div class="muted" style="margin-top:10px;"><b>Next step:</b> {next_step}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ============================================================
 # DATA + SIGNALS
@@ -805,6 +863,7 @@ filter_signals = st.sidebar.multiselect(
     ["STRONG BUY", "BUY", "HOLD", "WAIT", "ERROR"],
     default=["STRONG BUY", "BUY", "HOLD", "WAIT", "ERROR"]
 )
+focus_mode = st.sidebar.toggle("Focus Mode", value=False)
 
 st.markdown(f"""
 <script>
@@ -816,15 +875,17 @@ setTimeout(function() {{
 
 st.markdown("""
 <div class="hero">
-    <div class="kicker">Final All-In Build</div>
-    <h1 style="margin:4px 0 8px 0;font-size:52px;">Trading Terminal Supreme</h1>
-    <p style="margin:0;font-size:18px;color:#ffffff !important;">
-        Command center, scanner, journal-driven portfolio, health score, signals, news, alerts, broker buttons, and AI assistant.
+    <div class="kicker">Final All-In Build v3</div>
+    <h1 style="margin:4px 0 8px 0;font-size:52px;color:#0f172a !important;">Trading Terminal Supreme</h1>
+    <p style="margin:0;font-size:18px;color:#334155 !important;">
+        Cleaner light design, command center, scanner, journal-driven portfolio, health score, signals, news, alerts, broker buttons, and AI assistant.
     </p>
 </div>
 """, unsafe_allow_html=True)
 
 market_banner()
+if focus_mode:
+    st.markdown('<div class="focus-ribbon">Focus Mode is ON — prioritizing your best setup, biggest risk, newest changes, and today’s plan.</div>', unsafe_allow_html=True)
 
 # ============================================================
 # BUILD DATA
@@ -942,6 +1003,55 @@ with tab1:
     st.subheader("Command Center")
     top_signal_changes = load_alert_history()[:5]
 
+    if focus_mode:
+        fc1, fc2, fc3 = st.columns(3)
+        if not df_results.empty:
+            top = df_results.iloc[0]
+            with fc1:
+                st.markdown(f"""
+                <div class="card">
+                    <div class="metric-label">Best Buy Right Now</div>
+                    <div class="big-ticker">{top['Ticker']}</div>
+                    <div style="margin-top:8px;"><span class="badge" style="background:{signal_color(top['Signal'])};">{top['Signal']}</span></div>
+                    <div class="dark" style="margin-top:10px;">Score <b>{top['Score']}</b></div>
+                </div>
+                """, unsafe_allow_html=True)
+        with fc2:
+            if top_signal_changes:
+                a = top_signal_changes[0]
+                st.markdown(f"""
+                <div class="card">
+                    <div class="metric-label">Newest Signal Change</div>
+                    <div class="big-ticker">{a['Ticker']}</div>
+                    <div class="dark" style="margin-top:10px;"><b>{a['From']}</b> → <b>{a['To']}</b></div>
+                    <div class="muted" style="margin-top:8px;">{a['Timestamp']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                show_empty_state("No recent signal changes", "Once signals flip, they will appear here.", "Keep auto-refresh on to capture changes.")
+        with fc3:
+            biggest_risk = None
+            review = df_results[df_results["Portfolio Action"].isin(["REDUCE", "REVIEW"])]
+            if not review.empty:
+                biggest_risk = review.iloc[0]
+            if biggest_risk is not None:
+                st.markdown(f"""
+                <div class="card">
+                    <div class="metric-label">Biggest Risk Right Now</div>
+                    <div class="big-ticker">{biggest_risk['Ticker']}</div>
+                    <div style="margin-top:8px;"><span class="badge" style="background:{signal_color(biggest_risk['Portfolio Action'])};">{biggest_risk['Portfolio Action']}</span></div>
+                    <div class="muted" style="margin-top:8px;">{biggest_risk['Action Note']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="card">
+                    <div class="metric-label">Biggest Risk Right Now</div>
+                    <div class="big-ticker">No major flags</div>
+                    <div class="muted" style="margin-top:8px;">Current holdings are not showing urgent review alerts.</div>
+                </div>
+                """, unsafe_allow_html=True)
+
     c1, c2 = st.columns([1.35, 1.0])
 
     with c1:
@@ -979,6 +1089,27 @@ with tab1:
             briefing_html += f'<div class="brief-row">{item}</div>'
         briefing_html += '</div>'
         st.markdown(briefing_html, unsafe_allow_html=True)
+
+        st.markdown("### Today’s Plan")
+        plan_items = []
+        if not df_results.empty:
+            top_buys = df_results[df_results["Signal"].isin(["STRONG BUY", "BUY"])].head(3)["Ticker"].tolist()
+            review = df_results[df_results["Portfolio Action"].isin(["REDUCE", "REVIEW"])].head(2)["Ticker"].tolist()
+            avoid = df_results[df_results["Signal"] == "WAIT"].head(2)["Ticker"].tolist()
+            if top_buys:
+                plan_items.append(f"Watch these setups: {', '.join(top_buys)}")
+            if review:
+                plan_items.append(f"Review these holdings: {', '.join(review)}")
+            if avoid:
+                plan_items.append(f"Avoid stretched names: {', '.join(avoid)}")
+        if not plan_items:
+            show_empty_state("No plan generated yet", "The app will build a plan when it has active setup and portfolio data.", "Add journal entries and keep your watchlist active.")
+        else:
+            html = '<div class="card">'
+            for item in plan_items:
+                html += f'<div class="brief-row">{item}</div>'
+            html += '</div>'
+            st.markdown(html, unsafe_allow_html=True)
 
         client = get_openai_client()
         if client is not None and st.button("Generate AI Morning Recap"):
@@ -1025,7 +1156,7 @@ with tab1:
             attention.append(f"Latest signal change: {first['Ticker']} moved {first['From']} → {first['To']}.")
 
         if not attention:
-            st.info("No urgent flags right now.")
+            show_empty_state("No urgent flags", "Nothing is currently triggering a high-priority review.", "Check back after the next refresh or market move.")
         else:
             html = ""
             for item in attention:
@@ -1194,16 +1325,35 @@ with tab3:
         sub = df_results[df_results["Bucket"] == bucket]
         st.markdown(f"#### {bucket}")
         if sub.empty:
-            st.info(f"No {bucket} setups right now.")
+            show_empty_state(f"No {bucket} setups right now", "This group has no qualifying names at the moment.", "Check again after the next refresh.")
         else:
             st.dataframe(sub[["Ticker", "Signal", "Score", "Price", "RSI", "1D %", "Suggested $"]], use_container_width=True, hide_index=True)
 
 with tab4:
     st.subheader("Portfolio")
     if portfolio_df.empty:
-        st.info("No open positions yet. Add buys and sells in the Journal tab.")
+        show_empty_state(
+            "Your portfolio is empty",
+            "This app builds your portfolio automatically from the Trade Journal.",
+            "Go to the Journal tab and add a BUY entry."
+        )
     else:
         st.dataframe(portfolio_df, use_container_width=True, hide_index=True)
+
+        story_lines = []
+        if not portfolio_df.empty:
+            largest = portfolio_df.sort_values("Market Value", ascending=False).iloc[0]
+            story_lines.append(f"Your largest position is {largest['Ticker']} at ${largest['Market Value']:,.0f}.")
+            story_lines.append(f"You are {health['crypto_pct']}% crypto.")
+            if len(portfolio_df) > 0:
+                best_unreal = portfolio_df.sort_values("Unrealized P/L", ascending=False).iloc[0]
+                story_lines.append(f"Your strongest unrealized position is {best_unreal['Ticker']} at ${best_unreal['Unrealized P/L']:,.0f}.")
+        if story_lines:
+            html = '<div class="card">'
+            for line in story_lines:
+                html += f'<div class="brief-row">{line}</div>'
+            html += '</div>'
+            st.markdown(html, unsafe_allow_html=True)
 
         p1, p2 = st.columns(2)
         with p1:
@@ -1274,7 +1424,7 @@ with tab5:
             st.session_state["journal_notes_input"] = f"Signal {current_signal}; stop {stop_val}; target {target_val}"
 
         st.markdown(f"""
-        <div class="card">
+        <div class="card-soft">
             <div class="metric-label">Trade Ticket Assist</div>
             <div class="dark">Current Price: <b>{round(current_market_price, 4) if "USD" in j_ticker and j_ticker not in ["BTC-USD","ETH-USD"] else round(current_market_price, 2)}</b></div>
             <div class="dark" style="margin-top:8px;">Current Signal: <b>{current_signal}</b></div>
@@ -1312,6 +1462,9 @@ with tab5:
             }])
             updated = pd.concat([journal, new_row], ignore_index=True)
             save_journal(updated)
+            st.session_state["journal_price_input"] = float(current_market_price)
+            st.session_state["journal_shares_input"] = 0.0
+            st.session_state["journal_notes_input"] = ""
             st.success("Journal entry added. Refresh the app to update everything.")
 
     with table_col:
@@ -1354,7 +1507,7 @@ with tab6:
         news_ticker = st.selectbox("News ticker", df_results["Ticker"].tolist(), key="news_ticker")
         news_items = get_news(news_ticker)
         if not news_items:
-            st.info("No news found right now.")
+            show_empty_state("No news found", "There were no recent headlines returned for this ticker.", "Try another name or refresh later.")
         else:
             for i, item in enumerate(news_items):
                 st.markdown(f"""
@@ -1369,7 +1522,7 @@ with tab6:
         st.subheader("Alerts")
         history = load_alert_history()
         if not history:
-            st.info("No alert history yet.")
+            show_empty_state("No alerts yet", "Signal changes will appear here as the app detects them.", "Keep auto-refresh on and let the watchlist run.")
         else:
             st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
 
@@ -1379,7 +1532,7 @@ with tab7:
     client = get_openai_client()
 
     if client is None:
-        st.warning("Add OPENAI_API_KEY in Streamlit Secrets to enable the chatbot.")
+        show_empty_state("Chatbot not enabled", "The AI assistant needs an OpenAI API key in Streamlit Secrets.", "Add OPENAI_API_KEY and reboot the app.")
     else:
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = []
