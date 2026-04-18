@@ -6,6 +6,41 @@ import feedparser
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+st.set_page_config(page_title="Stock Dashboard", layout="wide")
+
+st.markdown("""
+<style>
+/* Main app text */
+html, body, [class*="css"] {
+    color: #111111 !important;
+}
+
+/* Labels above widgets */
+label, .stSelectbox label, .stMultiSelect label {
+    color: #000000 !important;
+    font-weight: 700 !important;
+}
+
+/* Dropdown selected value */
+div[data-baseweb="select"] > div {
+    color: #000000 !important;
+    font-weight: 700 !important;
+}
+
+/* Dropdown menu items */
+ul[role="listbox"] li,
+div[role="listbox"] div {
+    color: #000000 !important;
+    font-weight: 700 !important;
+}
+
+/* Text inside select boxes */
+div[data-baseweb="select"] * {
+    color: #000000 !important;
+    font-weight: 700 !important;
+}
+</style>
+""", unsafe_allow_html=True)
 import yfinance as yf
 from openai import OpenAI
 from ta.momentum import RSIIndicator
